@@ -12,19 +12,36 @@ Telefonun TV'nin kumandası olur. **Tek uygulama**, iki mod: ilk açılışta "A
 
 Telefon ve TV **aynı Wi-Fi/yerel ağda** olmalı. Ağ tamamen yokken kumanda çalışmaz; ağ gelince bağlantı kendiliğinden yenilenir.
 
-## Neler var (v1)
+## Neler var (v2)
 
 - Açılış animasyonu, TV/telefon seçimi, QR eşleştirme
-- Yön tuşları, OK, Geri, Ana ekran, Son uygulamalar
-- Ses +/−, sessiz
-- Dokunmatik yüzey (kaydır = yön, dokun = seç)
-- TV'de yazı yazma ve sesle yazma
-- TV'deki uygulamaları listeleme ve açma
-- Birden fazla TV kaydetme ve geçiş
+- Yön tuşları, OK, Geri, **Ana ekran**, **Son uygulama** (yedek yollu, aşağıya bak)
+- Ses +/−, sessiz, oynat/duraklat/ileri/geri sarma tuşları, Ayarlar ve Wi-Fi kısayolu
+- **Güç:** Uyut, güç menüsü, uyku zamanlayıcı, Uyandır (Wake-on-LAN)
+- Dokunmatik yüzey, TV'de yazı yazma, sesle yazma
+- TV'deki uygulamaları listeleme/açma, son kullanılanlar
+- **Dosya gönderme:** telefondan TV'ye ve TV'den telefona, APK'yı TV'ye kurma. İnternet gerekmez.
+- **TV ana ekranı düzenleyici:** şablon (Sinema = Apple TV tarzı, Alt çubuk = Samsung tarzı, Şerit = LG tarzı, Izgara), arka plan, kısayol ekle/sil/sırala (Ayarlar'ı istediğin yere koy). Telefondan kaydet, TV'de anında değişir.
+- **Yılan oyunu:** TV'de açılır, telefon gamepad olur.
+- **İnternetsiz çalışma:** yalnızca aynı yerel ağ (modem/hotspot) yeterli; telefon Wi-Fi'ye sabitlenir.
+- Hızlı yeniden bağlanma: uygulamaya dönünce bağlantı beklemeden yenilenir.
+- **TV hata kaydı:** TV'de "Kayıt" düğmesi ya da telefonda Cihazlar > "TV hata kaydını göster".
 
-## Henüz yok
+## Dürüst notlar
 
-Önizlemede gösterilen şunlar v1'de **yok**: makrolar ve uyku zamanlayıcısı, fotoğraf/video/ekran yansıtma, aile paylaşımı ve çocuk kilidi, açık tema. Kanal +/− ve TV'yi uzaktan kapatma da yok: normal bir uygulama bunları yapamaz, sistem izni gerekir.
+- Ana ekran / Son uygulama: bazı Android TV'ler sistem eylemini "yapıldı" deyip yapmaz. Bu durumda Zapp 1 sn içinde yedek yola geçer (Ana ekran: ana ekran uygulamasını açar; Son uygulama: bir önceki uygulamaya geçer, tekrar basınca geri döner).
+- "Ana ekran yap": Zapp ana ekranını Ana ekran tuşuna atar. İlk basışta TV "Her zaman" diye sorabilir. Bazı TV'ler üçüncü taraf ana ekranı kabul etmez; "Eskisine dön" ile geri alınır.
+- Uyut: TV modeline göre uykuya alır ya da almaz; olmazsa Güç menüsünü kullan. Uyandır: TV'nin MAC adresi ve TV ayarlarında "Wi-Fi/LAN ile uyandır" açık olmalı (MAC'i bazen TV vermez, telefondan elle girilir).
+- Şablonlar Apple/Samsung/LG'nin kendi arayüzünü değil, TV'ne kurulan Android TV ana ekranının **görünümünü** taklit eder. Samsung/LG TV'lerde Zapp'ın TV modu çalışmaz (Android TV değiller).
+- Kanal +/− ve TV'yi tamamen kapatma normal bir uygulamayla yapılamaz.
+- Erişilebilirlik izni kendiliğinden kapanıyorsa TV'deki "Kayıt" ekranı nedenini gösterir; bana gönder.
+
+## Güncelleme (Termux)
+
+    cd ~/Zapp
+    git add -A && git commit -m "v2" && git push
+    gh run watch
+    gh run download -n Zapp-apk
 
 ## Derleme (APK üretme)
 
@@ -66,4 +83,5 @@ Yön tuşları Android 13+ TV'lerde doğrudan tuş olayı olarak gider. Daha esk
 - `ZappAccessibilityService.kt`: TV'de kalıcı çalışan servis, WebSocket sunucusu ve komutları uygulayan kod
 - `ZappServer.kt`: TV'deki WebSocket sunucusu ve anahtar doğrulama
 - `RemoteClient.kt`: telefondaki bağlantı, otomatik yeniden bağlanma ve mDNS ile TV bulma
-- `TvScreens.kt`, `PhoneScreens.kt`, `Splash.kt`, `Ui.kt`: ekranlar ve animasyonlar
+- `FileXfer.kt`: dosya aktarımı · `Launcher.kt`: TV ana ekranı · `Game.kt`: Yılan · `Diag.kt`: kayıt
+- `TvScreens.kt`, `PhoneScreens.kt`, `PhoneMore.kt`, `Splash.kt`, `Ui.kt`: ekranlar ve animasyonlar

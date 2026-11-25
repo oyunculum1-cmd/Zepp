@@ -35,6 +35,7 @@ fun TvHome(onChangeMode: () -> Unit) {
     var enabled by remember { mutableStateOf(a11yEnabled(ctx)) }
     var host by remember { mutableStateOf(NetUtil.localIp()) }
     var showQr by remember { mutableStateOf(false) }
+    var showLog by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         while (true) {
@@ -51,11 +52,15 @@ fun TvHome(onChangeMode: () -> Unit) {
     val paired = state.paired || Prefs.tvPaired(ctx)
 
     when {
-        !enabled -> PermissionPage(ctx, onChangeMode)
+        showLog -> LogPage { showLog = false }
+        !enabled -> PermissionPage(ctx, onChangeMode) { showLog = true }
         paired && !showQr -> ConnectedPage(
             clients = state.clients,
             onAdd = { showQr = true },
             onChangeMode = onChangeMode,
+            onLauncher = { SysActions.open(ctx, "launcher") },
+            onGame = { SysActions.open(ctx, "game") },
+            onLog = { showLog = true },
         )
         else -> QrPage(
             ctx = ctx,
@@ -67,7 +72,7 @@ fun TvHome(onChangeMode: () -> Unit) {
 }
 
 @Composable
-private fun PermissionPage(ctx: Context, onChangeMode: () -> Unit) {
+private fun PermissionPage(ctx: Context, onChangeMode: () -> Unit, onLog: () -> Unit) {
     Column(
         Modifier.fillMaxSize().padding(64.dp),
         verticalArrangement = Arrangement.Center,
@@ -103,7 +108,22 @@ private fun PermissionPage(ctx: Context, onChangeMode: () -> Unit) {
                 }
             }
             ZButton("Modu değiştir", onClick = onChangeMode)
+            ZButton("Kayıt", onClick = onLog)
         }
+    }
+}
+
+@Composable
+private fun LogPage(onBack: () -> Unit) {
+    Column(Modifier.fillMaxSize().padding(48.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        Text("Zapp kaydı", color = Ink, fontSize = 36.sp, fontWeight = FontWeight.Bold)
+        Text(
+            ZLog.tail(18).ifBlank { "Kayıt boş." },
+            color = Muted,
+            fontSize = 16.sp,
+            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+        )
+        ZButton("Geri", primary = true, autoFocus = true, onClick = onBack)
     }
 }
 
@@ -144,7 +164,14 @@ private fun QrPage(ctx: Context, host: String?, onBack: (() -> Unit)?, onChangeM
 }
 
 @Composable
-private fun ConnectedPage(clients: Int, onAdd: () -> Unit, onChangeMode: () -> Unit) {
+private fun ConnectedPage(
+    clients: Int,
+    onAdd: () -> Unit,
+    onChangeMode: () -> Unit,
+    onLauncher: () -> Unit,
+    onGame: () -> Unit,
+    onLog: () -> Unit,
+) {
     Column(
         Modifier.fillMaxSize().padding(64.dp),
         verticalArrangement = Arrangement.Center,
@@ -168,6 +195,12 @@ private fun ConnectedPage(clients: Int, onAdd: () -> Unit, onChangeMode: () -> U
         Spacer(Modifier.height(32.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
             ZButton("Yeni telefon ekle", primary = true, autoFocus = true, onClick = onAdd)
+            ZButton("Ana ekranı aç", onClick = onLauncher)
+            ZButton("Oyun", onClick = onGame)
+        }
+        Spacer(Modifier.height(12.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            ZButton("Kayıt", onClick = onLog)
             ZButton("Modu değiştir", onClick = onChangeMode)
         }
     }

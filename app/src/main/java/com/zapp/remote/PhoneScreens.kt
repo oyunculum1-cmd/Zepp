@@ -16,6 +16,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -39,6 +40,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -58,6 +60,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.google.mlkit.vision.barcode.BarcodeScannerOptions
 import com.google.mlkit.vision.barcode.BarcodeScanning
@@ -76,6 +80,17 @@ fun PhoneRoot(onChangeMode: () -> Unit) {
     var tab by remember { mutableStateOf(if (Prefs.devices(ctx).isEmpty()) "scan" else "remote") }
     val active = devices.firstOrNull { it.id == activeId } ?: devices.firstOrNull()
     val status by RemoteClient.status.collectAsState()
+
+    // Wi-Fi'ye bagla (internetsiz yerel agda da calissin) ve uygulamaya donunce hemen yeniden baglan
+    LaunchedEffect(Unit) { NetBinder.start(ctx) }
+    val lifeOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifeOwner) {
+        val ob = LifecycleEventObserver { _, e ->
+            if (e == Lifecycle.Event.ON_START) RemoteClient.kick()
+        }
+        lifeOwner.lifecycle.addObserver(ob)
+        onDispose { lifeOwner.lifecycle.removeObserver(ob) }
+    }
 
     // Uygulama acilinca (cikip girsen, silip yeniden acsan da) kayitli TV'ye kendiliginden baglan
     LaunchedEffect(active) {
@@ -99,6 +114,7 @@ fun PhoneRoot(onChangeMode: () -> Unit) {
         return
     }
 
+    TvLogDialog()
     Column(Modifier.fillMaxSize()) {
         // Ust cubuk
         Row(
@@ -141,6 +157,9 @@ fun PhoneRoot(onChangeMode: () -> Unit) {
                 "touch" -> TouchTab()
                 "kbd" -> KeyboardTab()
                 "apps" -> AppsTab()
+                "files" -> FilesTab()
+                "tv" -> TvEditTab()
+                "game" -> GameTab()
                 "devs" -> DevicesTab(
                     devices = devices,
                     activeId = active?.id,
@@ -167,19 +186,23 @@ fun PhoneRoot(onChangeMode: () -> Unit) {
 
         // Alt sekmeler
         Row(
-            Modifier.fillMaxWidth().background(Panel).padding(vertical = 6.dp),
-            horizontalArrangement = Arrangement.SpaceEvenly,
+            Modifier.fillMaxWidth().background(Panel).padding(vertical = 6.dp)
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             listOf(
                 "remote" to "Kumanda",
                 "touch" to "Dokunmatik",
                 "kbd" to "Klavye",
                 "apps" to "Uygulama",
+                "files" to "Dosya",
+                "tv" to "TV Ekranı",
+                "game" to "Oyun",
                 "devs" to "Cihazlar",
             ).forEach { (id, label) ->
                 Box(
                     Modifier
-                        .weight(1f)
+                        .width(84.dp)
                         .heightMin48()
                         .clickable { tab = id },
                     contentAlignment = Alignment.Center,
@@ -200,7 +223,7 @@ fun PhoneRoot(onChangeMode: () -> Unit) {
 private fun Modifier.heightMin48(): Modifier =
     this.then(Modifier.height(48.dp))
 
-private fun send(t: String, vararg kv: Pair<String, Any>) {
+fun send(t: String, vararg kv: Pair<String, Any>) {
     val j = JSONObject().put("t", t)
     kv.forEach { j.put(it.first, it.second) }
     RemoteClient.send(j)
@@ -247,6 +270,12 @@ private fun RemoteTab() {
             ZButton("Sessiz", Modifier.weight(1f)) { send("mute") }
             ZButton("Ses +", Modifier.weight(1f)) { send("vol", "d" to 1) }
         }
+        MediaRow()
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            ZButton("Ayarlar", Modifier.weight(1f)) { send("sys", "p" to "settings") }
+            ZButton("Wi-Fi", Modifier.weight(1f)) { send("sys", "p" to "wifi") }
+        }
+        PowerRow()
     }
 }
 
@@ -383,6 +412,24 @@ private fun AppsTab() {
             fontWeight = FontWeight.Bold,
             modifier = Modifier.padding(vertical = 12.dp)
         )
+        val recent by RemoteClient.recent.collectAsState()
+        if (recent.isNotEmpty()) {
+            Text("Son kullanılanlar", color = Muted, fontSize = 14.sp)
+            Row(
+                Modifier.horizontalScroll(rememberScrollState()).padding(vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                recent.forEach { a ->
+                    Box(
+                        Modifier
+                            .clip(RoundedCornerShape(50))
+                            .background(Violet)
+                            .clickable { send("app", "pkg" to a.pkg) }
+                            .padding(horizontal = 16.dp, vertical = 10.dp)
+                    ) { Text(a.name, color = Ink, fontSize = 14.sp) }
+                }
+            }
+        }
         if (apps.isEmpty()) {
             Text(
                 "Liste TV'den bekleniyor. TV'ye bağlı olduğundan emin ol.",
@@ -461,6 +508,7 @@ private fun DevicesTab(
                 }
             }
         }
+        ZButton("TV hata kaydını göster", Modifier.fillMaxWidth()) { send("log") }
         ZButton("+ Yeni TV ekle (QR tara)", Modifier.fillMaxWidth(), primary = true, onClick = onAdd)
         ZButton("Modu değiştir (TV / Telefon)", Modifier.fillMaxWidth(), onClick = onChangeMode)
     }

@@ -16,6 +16,7 @@ data class Device(
     val host: String,
     val port: Int,
     val token: String,
+    val mac: String = "",
 )
 
 object Prefs {
@@ -51,6 +52,19 @@ object Prefs {
         sp(c).edit().putBoolean("tv_paired", v).apply()
     }
 
+    // ---- TV ana ekrani + oyun ----
+    fun layoutJson(c: Context): String? = sp(c).getString("layout", null)
+
+    fun setLayoutJson(c: Context, s: String) {
+        sp(c).edit().putString("layout", s).apply()
+    }
+
+    fun gameHigh(c: Context): Int = sp(c).getInt("game_high", 0)
+
+    fun setGameHigh(c: Context, v: Int) {
+        sp(c).edit().putInt("game_high", v).apply()
+    }
+
     // ---- Telefon tarafi ----
     fun devices(c: Context): List<Device> {
         val a = try {
@@ -68,6 +82,7 @@ object Prefs {
                     host = o.getString("host"),
                     port = o.getInt("port"),
                     token = o.getString("token"),
+                    mac = o.optString("mac", ""),
                 )
             )
         }
@@ -84,6 +99,7 @@ object Prefs {
                     .put("host", it.host)
                     .put("port", it.port)
                     .put("token", it.token)
+                    .put("mac", it.mac)
             )
         }
         sp(c).edit().putString("devices", a.toString()).apply()
@@ -116,6 +132,27 @@ object NetUtil {
             ?.hostAddress
     } catch (e: Exception) {
         null
+    }
+}
+
+object NetMac {
+    /** TV'nin MAC adresi (Wake-on-LAN icin). Android 11+ cogu zaman vermez; bos donebilir. */
+    fun get(): String {
+        for (n in listOf("eth0", "wlan0")) {
+            try {
+                val b = NetworkInterface.getByName(n)?.hardwareAddress
+                if (b != null && b.size == 6 && b.any { it.toInt() != 0 }) {
+                    return b.joinToString(":") { "%02x".format(it) }
+                }
+            } catch (e: Exception) {
+            }
+            try {
+                val t = java.io.File("/sys/class/net/$n/address").readText().trim()
+                if (t.length == 17 && t != "02:00:00:00:00:00") return t
+            } catch (e: Exception) {
+            }
+        }
+        return ""
     }
 }
 
