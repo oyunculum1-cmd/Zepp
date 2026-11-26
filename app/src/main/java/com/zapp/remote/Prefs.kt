@@ -52,17 +52,90 @@ object Prefs {
         sp(c).edit().putBoolean("tv_paired", v).apply()
     }
 
-    // ---- TV ana ekrani + oyun ----
-    fun layoutJson(c: Context): String? = sp(c).getString("layout", null)
-
-    fun setLayoutJson(c: Context, s: String) {
-        sp(c).edit().putString("layout", s).apply()
-    }
-
+    // ---- Oyun ----
     fun gameHigh(c: Context): Int = sp(c).getInt("game_high", 0)
 
     fun setGameHigh(c: Context, v: Int) {
         sp(c).edit().putInt("game_high", v).apply()
+    }
+
+    fun gameBest(c: Context, mode: String): Int = sp(c).getInt("game_best_$mode", 0)
+
+    fun setGameBest(c: Context, mode: String, v: Int) {
+        sp(c).edit().putInt("game_best_$mode", v).apply()
+    }
+
+    // ---- Admin (TV tarafi) ----
+    const val DEFAULT_ADMIN_CODE = "OOOUUDDO"   // 3xOK, 2xYukari, 2xAsagi, 1xOK
+
+    fun hashOf(code: String): String =
+        java.security.MessageDigest.getInstance("SHA-256")
+            .digest(("zapp|" + code).toByteArray()).joinToString("") { "%02x".format(it) }
+
+    fun adminCodeHash(c: Context): String =
+        sp(c).getString("admin_code", null) ?: hashOf(DEFAULT_ADMIN_CODE)
+
+    fun setAdminCode(c: Context, code: String) {
+        sp(c).edit().putString("admin_code", hashOf(code)).apply()
+    }
+
+    fun adminDev(c: Context): String = sp(c).getString("admin_dev", "") ?: ""
+    fun adminIp(c: Context): String = sp(c).getString("admin_ip", "") ?: ""
+
+    fun setAdmin(c: Context, dev: String, ip: String) {
+        sp(c).edit().putString("admin_dev", dev).putString("admin_ip", ip).apply()
+    }
+
+    fun banned(c: Context): Map<String, String> {
+        val o = try {
+            JSONObject(sp(c).getString("banned", "{}"))
+        } catch (e: Exception) {
+            JSONObject()
+        }
+        val m = LinkedHashMap<String, String>()
+        o.keys().forEach { m[it] = o.optString(it) }
+        return m
+    }
+
+    fun setBanned(c: Context, m: Map<String, String>) {
+        val o = JSONObject()
+        m.forEach { (k, v) -> o.put(k, v) }
+        sp(c).edit().putString("banned", o.toString()).apply()
+    }
+
+    fun locked(c: Context): Boolean = sp(c).getBoolean("locked", false)
+
+    fun setLocked(c: Context, v: Boolean) {
+        sp(c).edit().putBoolean("locked", v).apply()
+    }
+
+    /** Tum eslesmeleri sifirlar: yeni anahtar uretilir, eski telefonlar baglanamaz. */
+    fun resetToken(c: Context) {
+        sp(c).edit().remove("tv_token").putBoolean("tv_paired", false).apply()
+    }
+
+    // ---- Admin (telefon tarafi) ----
+    /** Bu telefonu taniyan kalici kimlik. */
+    fun devId(c: Context): String {
+        sp(c).getString("dev_id", null)?.let { return it }
+        val b = ByteArray(8)
+        SecureRandom().nextBytes(b)
+        val t = b.joinToString("") { "%02x".format(it) }
+        sp(c).edit().putString("dev_id", t).apply()
+        return t
+    }
+
+    /** Bu telefonun bildigi yonetici kodu (varsayilan ya da yonetici olarak degistirdigi). */
+    fun adminLocalCode(c: Context): String = sp(c).getString("admin_local", null) ?: DEFAULT_ADMIN_CODE
+
+    fun setAdminLocalCode(c: Context, code: String) {
+        sp(c).edit().putString("admin_local", code).apply()
+    }
+
+    fun adminWant(c: Context): String = sp(c).getString("admin_want", "") ?: ""
+
+    fun setAdminWant(c: Context, code: String) {
+        sp(c).edit().putString("admin_want", code).apply()
     }
 
     // ---- Telefon tarafi ----

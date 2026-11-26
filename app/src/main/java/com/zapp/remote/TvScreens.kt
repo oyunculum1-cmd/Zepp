@@ -58,7 +58,6 @@ fun TvHome(onChangeMode: () -> Unit) {
             clients = state.clients,
             onAdd = { showQr = true },
             onChangeMode = onChangeMode,
-            onLauncher = { SysActions.open(ctx, "launcher") },
             onGame = { SysActions.open(ctx, "game") },
             onLog = { showLog = true },
         )
@@ -168,7 +167,6 @@ private fun ConnectedPage(
     clients: Int,
     onAdd: () -> Unit,
     onChangeMode: () -> Unit,
-    onLauncher: () -> Unit,
     onGame: () -> Unit,
     onLog: () -> Unit,
 ) {
@@ -195,7 +193,6 @@ private fun ConnectedPage(
         Spacer(Modifier.height(32.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
             ZButton("Yeni telefon ekle", primary = true, autoFocus = true, onClick = onAdd)
-            ZButton("Ana ekranı aç", onClick = onLauncher)
             ZButton("Oyun", onClick = onGame)
         }
         Spacer(Modifier.height(12.dp))

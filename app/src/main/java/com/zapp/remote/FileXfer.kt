@@ -191,6 +191,29 @@ object TvFiles {
         dir(c).listFiles()?.filter { it.isFile }?.sortedByDescending { it.lastModified() }
             ?: emptyList()
 
+    /** Gelen dosyayi TV dosya yoneticisinde gorunsun diye Indirilenler/Zapp'a da kopyalar. */
+    fun publish(c: Context, name: String): String {
+        val f = file(c, name) ?: return ""
+        return try {
+            if (Build.VERSION.SDK_INT >= 29) {
+                val v = ContentValues().apply {
+                    put(MediaStore.MediaColumns.DISPLAY_NAME, f.name)
+                    put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/Zapp")
+                }
+                val uri = c.contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, v) ?: return ""
+                c.contentResolver.openOutputStream(uri)?.use { o -> f.inputStream().use { it.copyTo(o) } }
+            } else {
+                val d = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "Zapp")
+                d.mkdirs()
+                f.copyTo(File(d, f.name), overwrite = true)
+            }
+            " (Download/Zapp klasörüne de kopyalandı)"
+        } catch (e: Exception) {
+            ZLog.e("genel klasore kopya", e)
+            ""
+        }
+    }
+
     /** APK ise kurulum ekranini acar. Sonuc: kullaniciya gosterilecek mesaj. */
     fun install(c: Context, name: String): String {
         val f = file(c, name) ?: return "Dosya bulunamadı"

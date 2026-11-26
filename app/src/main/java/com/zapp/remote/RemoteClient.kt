@@ -33,7 +33,7 @@ import kotlin.coroutines.resume
 
 data class TvApp(val name: String, val pkg: String)
 
-enum class Status { IDLE, CONNECTING, CONNECTED, OFFLINE, DENIED }
+enum class Status { IDLE, CONNECTING, CONNECTED, OFFLINE, DENIED, KICKED, BANNED, LOCKED }
 
 /**
  * Telefon tarafi. Secili TV'ye surekli baglanmaya calisir: baglanti koparsa (TV kapandi,
@@ -43,12 +43,13 @@ enum class Status { IDLE, CONNECTING, CONNECTED, OFFLINE, DENIED }
 object RemoteClient {
     val status = MutableStateFlow(Status.IDLE)
     val apps = MutableStateFlow<List<TvApp>>(emptyList())
-    val recent = MutableStateFlow<List<TvApp>>(emptyList())
     val files = MutableStateFlow<List<TvFile>>(emptyList())
     val xfer = MutableStateFlow(XferState())
     val notice = MutableStateFlow("")
     val tvLog = MutableStateFlow<String?>(null)
-    val layout = MutableStateFlow<String?>(null)
+    val admin = MutableStateFlow(false)
+    val tvVer = MutableStateFlow(0)
+    val adminState = MutableStateFlow<JSONObject?>(null)
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var job: Job? = null
@@ -60,6 +61,9 @@ object RemoteClient {
 
     @Volatile
     private var denied = false
+
+    @Volatile
+    private var stopStatus: Status? = null
 
     @Volatile
     private var lastPong = 0L
@@ -87,9 +91,9 @@ object RemoteClient {
         }
         job?.cancel()
         denied = false
+        stopStatus = null
         current = device
         apps.value = emptyList()
-        recent.value = emptyList()
         files.value = emptyList()
         job = scope.launch { loop(app, device) }
     }
@@ -104,6 +108,15 @@ object RemoteClient {
         }
         status.value = Status.IDLE
         apps.value = emptyList()
+    }
+
+    /** Kesildi/engellendi sonrasi elle yeniden baglan. */
+    fun reconnect(ctx: Context) {
+        val d = current ?: return
+        job?.cancel()
+        job = null
+        current = null
+        connect(ctx, d)
     }
 
     /** Uygulamaya donunce / ag degisince: beklemeden yeniden baglan, canli mi diye yokla. */
@@ -143,10 +156,14 @@ object RemoteClient {
 
     // ------------------------------------------------------------- dosyalar
 
-    fun upload(ctx: Context, uris: List<Uri>) {
+    fun upload(ctx: Context, uris: List<Uri>, after: ((String) -> Unit)? = null) {
         val app = ctx.applicationContext
         scope.launch {
             for (u in uris) {
+                if (status.value != Status.CONNECTED) {
+                    xfer.value = XferState(msg = "TV'ye bağlı değilsin. Önce bağlan.")
+                    break
+                }
                 val (name, size) = nameAndSize(app, u)
                 xfer.value = XferState(name, 0, size, "up")
                 val ok = try {
@@ -161,8 +178,12 @@ object RemoteClient {
                     ZLog.e("gonderme", e)
                     false
                 }
-                xfer.value = XferState(msg = if (ok) "TV'ye gönderildi: $name" else "Gönderilemedi: $name")
+                xfer.value = XferState(
+                    msg = if (ok) "TV'ye gönderildi: $name"
+                    else "Gönderilemedi: $name. TV cevap vermedi; TV'deki Zapp güncel mi (v3)? TV ekranında 'Dosya alınıyor' yazısı çıkıyor mu?"
+                )
                 if (!ok) break
+                after?.invoke(name)
             }
             send(JSONObject().put("t", "ls"))
         }
@@ -198,6 +219,10 @@ object RemoteClient {
                 status.value = Status.DENIED
                 return
             }
+            stopStatus?.let {
+                status.value = it
+                return
+            }
             if (authed) {
                 fails = 0
                 backoff = 400L
@@ -227,7 +252,11 @@ object RemoteClient {
         var authed = false
         val c = object : WebSocketClient(URI("ws://${d.host}:${d.port}")) {
             override fun onOpen(handshakedata: ServerHandshake?) {
-                send(JSONObject().put("t", "auth").put("token", d.token).toString())
+                val a = JSONObject().put("t", "auth").put("token", d.token)
+                    .put("dev", Prefs.devId(ctx)).put("name", android.os.Build.MODEL ?: "Telefon")
+                val want = Prefs.adminWant(ctx)
+                if (want.isNotEmpty()) a.put("adm", want)
+                send(a.toString())
             }
 
             override fun onMessage(message: String?) {
@@ -298,6 +327,12 @@ object RemoteClient {
                 onAuthed()
                 lastPong = System.currentTimeMillis()
                 status.value = Status.CONNECTED
+                admin.value = j.optBoolean("admin")
+                tvVer.value = j.optInt("ver", 1)
+                if (admin.value && Prefs.adminWant(ctx).isNotEmpty()) Prefs.setAdminWant(ctx, "")
+                if (tvVer.value < 3) {
+                    notice.value = "TV'deki Zapp ESKİ sürüm. Dosya, admin ve duvar kağıdı için TV'ye de yeni APK'yı kur."
+                }
                 val mac = j.optString("mac")
                 if (mac.isNotEmpty() && mac != d.mac) {
                     Prefs.upsert(ctx, d.copy(mac = mac))
@@ -305,10 +340,13 @@ object RemoteClient {
                 c.send("""{"t":"apps"}""")
             }
             "denied" -> denied = true
+            "kicked" -> stopStatus = Status.KICKED
+            "banned" -> stopStatus = Status.BANNED
+            "locked" -> stopStatus = Status.LOCKED
+            "adminstate" -> adminState.value = j
             "pong" -> lastPong = System.currentTimeMillis()
             "apps" -> {
                 apps.value = parseApps(j.optJSONArray("list"))
-                recent.value = parseApps(j.optJSONArray("recent"))
             }
             "files" -> {
                 val a = j.optJSONArray("list")
@@ -323,7 +361,6 @@ object RemoteClient {
             }
             "msg" -> notice.value = j.optString("v")
             "log" -> tvLog.value = j.optString("v")
-            "layout" -> layout.value = j.optString("v")
             "fbeg" -> receiver.begin(j)
             "fend" -> receiver.end()
             "fack" -> gate.ack()

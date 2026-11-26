@@ -10,15 +10,16 @@ import java.security.MessageDigest
 import java.util.Collections
 
 /**
- * TV'de calisan WebSocket sunucusu. Telefon once {"t":"auth","token":"..."} gonderir;
- * token dogruysa komutlar kabul edilir. Token'i yalnizca TV'deki QR'i tarayan telefon bilir.
- * Callback'ler sunucu thread'inde calisir; sirayi bozmamak icin dosya mesajlari orada islenir.
+ * TV'de calisan WebSocket sunucusu. Telefon once {"t":"auth","token":"...","dev":"...","name":"..."}
+ * gonderir; token dogruysa ve admin politikasi izin verirse komutlar kabul edilir.
+ * authHook: kabul icin ok mesajina eklenecek alanlari dondurur; "deny" alani varsa reddeder.
  */
 class ZappServer(
     port: Int,
     private val token: String,
     private val tvName: String,
     private val tvMac: String,
+    private val authHook: (WebSocket, JSONObject) -> JSONObject,
     private val onCommand: (WebSocket, JSONObject) -> Unit,
     private val onBinary: (WebSocket, ByteArray) -> Unit,
     private val onClients: (Int) -> Unit,
@@ -27,6 +28,8 @@ class ZappServer(
 ) : WebSocketServer(InetSocketAddress(port)) {
 
     private val authed: MutableSet<WebSocket> = Collections.synchronizedSet(HashSet())
+
+    fun isAuthed(c: WebSocket) = authed.contains(c)
 
     override fun onOpen(conn: WebSocket?, handshake: ClientHandshake?) {}
 
@@ -55,16 +58,23 @@ class ZappServer(
                     j.optString("token").toByteArray(),
                     token.toByteArray()
                 )
-                if (ok) {
-                    authed.add(conn)
-                    conn.send(
-                        JSONObject().put("t", "ok").put("name", tvName).put("mac", tvMac).toString()
-                    )
-                    onClients(authed.size)
-                } else {
+                if (!ok) {
                     conn.send("""{"t":"denied"}""")
                     conn.close()
+                    return
                 }
+                val extra = authHook(conn, j)
+                val deny = extra.optString("deny")
+                if (deny.isNotEmpty()) {
+                    conn.send(JSONObject().put("t", deny).toString())
+                    conn.close()
+                    return
+                }
+                authed.add(conn)
+                val r = JSONObject().put("t", "ok").put("name", tvName).put("mac", tvMac)
+                extra.keys().forEach { r.put(it, extra.get(it)) }
+                conn.send(r.toString())
+                onClients(authed.size)
                 return
             }
 
@@ -92,7 +102,6 @@ class ZappServer(
 
     override fun onError(conn: WebSocket?, ex: Exception?) {
         ZLog.d("sunucu hatasi: ${ex?.javaClass?.simpleName} ${ex?.message}")
-        // conn == null: sunucunun kendisi hata verdi (ornek: port dolu) -> yeniden dene
         if (conn == null) onFatal()
     }
 

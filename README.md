@@ -12,20 +12,25 @@ Telefonun TV'nin kumandası olur. **Tek uygulama**, iki mod: ilk açılışta "A
 
 Telefon ve TV **aynı Wi-Fi/yerel ağda** olmalı. Ağ tamamen yokken kumanda çalışmaz; ağ gelince bağlantı kendiliğinden yenilenir.
 
-## Neler var (v2)
+## Neler var (v3)
+- QR ile eşleşme, kumanda, dokunmatik, klavye (sesle yazma dahil), uygulama listesi
+- **Dosya gönderme** (telefon → TV, TV → telefon, APK kurma). Alınan dosya TV'de ayrıca Download/Zapp klasörüne kopyalanır
+- **Duvar kâğıdı**: hazır 8 tasarım ya da telefondan seçtiğin fotoğraf TV'ye gider
+- **Admin paneli**: TV'ye bağlı cihazları gör, bağlantısını kes, engelle, yeni bağlantıya kilitle, eşleşmeleri sıfırla, yönetici kodunu değiştir
+- Animasyonlu açılış + açılış sesi
+- Yılan oyunu: 3 mod (Klasik/Sınırsız/Engelli), altın yem, güçlendirici, seviye, kombo, ses
+- Güç/uyku/medya tuşları, Wake-on-LAN, Wi‑Fi'ye bağlanma
 
-- Açılış animasyonu, TV/telefon seçimi, QR eşleştirme
-- Yön tuşları, OK, Geri, **Ana ekran**, **Son uygulama** (yedek yollu, aşağıya bak)
-- Ses +/−, sessiz, oynat/duraklat/ileri/geri sarma tuşları, Ayarlar ve Wi-Fi kısayolu
-- **Güç:** Uyut, güç menüsü, uyku zamanlayıcı, Uyandır (Wake-on-LAN)
-- Dokunmatik yüzey, TV'de yazı yazma, sesle yazma
-- TV'deki uygulamaları listeleme/açma, son kullanılanlar
-- **Dosya gönderme:** telefondan TV'ye ve TV'den telefona, APK'yı TV'ye kurma. İnternet gerekmez.
-- **TV ana ekranı düzenleyici:** şablon (Sinema = Apple TV tarzı, Alt çubuk = Samsung tarzı, Şerit = LG tarzı, Izgara), arka plan, kısayol ekle/sil/sırala (Ayarlar'ı istediğin yere koy). Telefondan kaydet, TV'de anında değişir.
-- **Yılan oyunu:** TV'de açılır, telefon gamepad olur.
-- **İnternetsiz çalışma:** yalnızca aynı yerel ağ (modem/hotspot) yeterli; telefon Wi-Fi'ye sabitlenir.
-- Hızlı yeniden bağlanma: uygulamaya dönünce bağlantı beklemeden yenilenir.
-- **TV hata kaydı:** TV'de "Kayıt" düğmesi ya da telefonda Cihazlar > "TV hata kaydını göster".
+(v3'te "Son uygulamalar" ve "TV Ekranı düzenleme" kaldırıldı.)
+
+## Admin
+- Telefonu TV'ye bağlı değilken kumandada sırayla: **OK OK OK, ▲ ▲, ▼ ▼, OK** → yönetici isteği gönderilir; TV'ye bağlanınca Admin sekmesi animasyonla açılır.
+- İlk yönetici olan telefonun cihaz kimliği ve IP'si TV'ye kaydedilir; sonraki bağlantılarda otomatik yöneticidir.
+- Varsayılan kod herkesin okuyabildiği bu depoda yazıyor. **Admin → "Yönetici kodunu değiştir" ile hemen değiştir.**
+- Yönetici gücü yalnızca Zapp bağlantılarını kapsar (TV'nin geri kalanını yönetmez). Zaten bağlanabilmek için TV'deki QR'a sahip olmak gerekir.
+
+## TV'ye APK'yı indirmek
+Dosya yöneticisi/Chrome ile: GitHub Releases → "latest" → Zapp.apk. TV'de klavye bozuksa telefondaki Klavye sekmesiyle adresi yaz. **Dosya/duvar kâğıdı/admin için TV'deki Zapp da v3 olmalı.**
 
 ## Dürüst notlar
 

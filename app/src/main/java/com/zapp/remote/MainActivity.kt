@@ -57,7 +57,7 @@ fun App() {
     var mode by remember { mutableStateOf(Prefs.mode(ctx)) }
 
     LaunchedEffect(Unit) {
-        delay(2800)
+        delay(3700)
         splash = false
     }
 

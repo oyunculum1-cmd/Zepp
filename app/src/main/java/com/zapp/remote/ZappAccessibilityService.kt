@@ -71,8 +71,9 @@ class ZappAccessibilityService : AccessibilityService() {
 
     @Volatile
     private var lastEvent = 0L
-    private val recents = ArrayList<String>()
-    private var homePkgs: Set<String> = emptySet()
+    private val clientInfo = ConcurrentHashMap<WebSocket, CInfo>()
+    private val adminSessions = java.util.Collections.newSetFromMap(ConcurrentHashMap<WebSocket, Boolean>())
+    private val startedAt = SystemClock.elapsedRealtime()
     private val sleepRunnable = Runnable { sleepNow() }
 
     private val audio by lazy { getSystemService(Context.AUDIO_SERVICE) as AudioManager }
@@ -80,15 +81,6 @@ class ZappAccessibilityService : AccessibilityService() {
     override fun onServiceConnected() {
         super.onServiceConnected()
         ZLog.d("servis baglandi (izin acik)")
-        try {
-            homePkgs = packageManager
-                .queryIntentActivities(
-                    Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME), 0
-                )
-                .map { it.activityInfo.packageName }
-                .toSet()
-        } catch (e: Exception) {
-        }
         startServer()
         registerNsd()
         watchNetwork()
@@ -99,12 +91,6 @@ class ZappAccessibilityService : AccessibilityService() {
         try {
             if (event == null || event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
             lastEvent = SystemClock.uptimeMillis()
-            val p = event.packageName?.toString() ?: return
-            if (p == packageName || p in homePkgs) return
-            if (p == "com.android.systemui" || p.contains("inputmethod") || p.contains("keyboard")) return
-            recents.remove(p)
-            recents.add(0, p)
-            while (recents.size > 12) recents.removeAt(recents.size - 1)
         } catch (e: Exception) {
             ZLog.e("olay", e)
         }
@@ -126,6 +112,10 @@ class ZappAccessibilityService : AccessibilityService() {
 
     // ---------------------------------------------------------------- sunucu
 
+    companion object {
+        const val PROTO = 3
+    }
+
     private val fileCtl = setOf("fbeg", "fend", "fack", "fdone")
 
     private fun startServer() {
@@ -135,6 +125,7 @@ class ZappAccessibilityService : AccessibilityService() {
             token = Prefs.tvToken(this),
             tvName = Prefs.tvName(),
             tvMac = NetMac.get(),
+            authHook = { conn, j -> authPolicy(conn, j) },
             onCommand = { conn, j ->
                 if (j.optString("t") in fileCtl) {
                     // Sirayi korumak icin ikili parcalarla ayni thread'de islenir
@@ -158,6 +149,8 @@ class ZappAccessibilityService : AccessibilityService() {
             onGone = { conn ->
                 recv.remove(conn)?.abort()
                 gates.remove(conn)
+                clientInfo.remove(conn)
+                adminSessions.remove(conn)
             },
             onFatal = {
                 handler.postDelayed({
@@ -266,6 +259,143 @@ class ZappAccessibilityService : AccessibilityService() {
 
     // ------------------------------------------------------------- komutlar
 
+    private fun toast(m: String) {
+        handler.post {
+            try {
+                android.widget.Toast.makeText(this, m, android.widget.Toast.LENGTH_LONG).show()
+            } catch (e: Exception) {
+            }
+        }
+    }
+
+    data class CInfo(val id: String, val name: String, val ip: String, val since: Long)
+
+    private fun ipOf(conn: WebSocket): String =
+        conn.remoteSocketAddress?.address?.hostAddress ?: ""
+
+    private fun isAdmin(conn: WebSocket) = adminSessions.contains(conn)
+
+    /** Baglanti kabul politikasi: yasak, kilit ve admin tanima (cihaz kimligi + IP ogrenme). */
+    private fun authPolicy(conn: WebSocket, j: JSONObject): JSONObject {
+        val dev = j.optString("dev").ifBlank { "eski-" + ipOf(conn) }
+        val name = j.optString("name").ifBlank { "Bilinmeyen telefon" }
+        val ip = ipOf(conn)
+        val out = JSONObject().put("ver", PROTO)
+        var admin = Prefs.adminDev(this).isNotEmpty() && Prefs.adminDev(this) == dev
+        val adm = j.optString("adm")
+        if (!admin && adm.isNotEmpty() && Prefs.hashOf(adm) == Prefs.adminCodeHash(this)) {
+            Prefs.setAdmin(this, dev, ip)
+            ZLog.d("yeni admin: $name ($ip)")
+            admin = true
+        }
+        if (admin) {
+            if (Prefs.adminIp(this) != ip) Prefs.setAdmin(this, dev, ip)
+        } else {
+            if (Prefs.banned(this).containsKey(dev)) return out.put("deny", "banned")
+            if (Prefs.locked(this)) return out.put("deny", "locked")
+        }
+        clientInfo[conn] = CInfo(dev, name, ip, System.currentTimeMillis())
+        if (admin) adminSessions.add(conn) else adminSessions.remove(conn)
+        out.put("admin", admin)
+        ZLog.d("baglandi: $name ($ip) admin=$admin")
+        return out
+    }
+
+    private fun closeWith(c: WebSocket, type: String) {
+        try {
+            c.send("{\"t\":\"$type\"}")
+            c.close()
+        } catch (e: Exception) {
+        }
+    }
+
+    private fun adminCmd(conn: WebSocket, j: JSONObject) {
+        if (!isAdmin(conn)) {
+            say(conn, "Yönetici yetkisi yok")
+            return
+        }
+        when (j.optString("t")) {
+            "kick" -> {
+                val id = j.optString("id")
+                clientInfo.entries.filter { it.value.id == id && it.key != conn }.forEach { (c, i) ->
+                    closeWith(c, "kicked")
+                    ZLog.d("baglanti kesildi: ${i.name}")
+                    say(conn, "Bağlantı kesildi: ${i.name}")
+                }
+            }
+            "ban" -> {
+                val id = j.optString("id")
+                val i = clientInfo.values.firstOrNull { it.id == id }
+                if (id == Prefs.adminDev(this)) {
+                    say(conn, "Yönetici engellenemez")
+                } else {
+                    val m = Prefs.banned(this).toMutableMap()
+                    m[id] = i?.name ?: j.optString("name", id)
+                    Prefs.setBanned(this, m)
+                    clientInfo.entries.filter { it.value.id == id }.forEach { (c, _) -> closeWith(c, "banned") }
+                    say(conn, "Engellendi: ${m[id]}")
+                }
+            }
+            "unban" -> {
+                val m = Prefs.banned(this).toMutableMap()
+                m.remove(j.optString("id"))
+                Prefs.setBanned(this, m)
+                say(conn, "Engel kaldırıldı")
+            }
+            "lock" -> {
+                Prefs.setLocked(this, j.optBoolean("on"))
+                say(conn, if (j.optBoolean("on")) "Yeni bağlantılar kapatıldı" else "Yeni bağlantılara izin verildi")
+            }
+            "resetpairing" -> {
+                say(conn, "Tüm eşleşmeler sıfırlandı. TV'de yeni QR çıkacak.")
+                handler.postDelayed({
+                    Prefs.resetToken(this)
+                    server?.connections?.toList()?.forEach {
+                        try {
+                            it.close()
+                        } catch (e: Exception) {
+                        }
+                    }
+                    stopServerOnly()
+                    startServer()
+                    registerNsd()
+                    publish()
+                }, 600)
+            }
+            "admincode" -> {
+                val c = j.optString("code")
+                if (c.length in 4..12 && c.all { it in "OUDLR" }) {
+                    Prefs.setAdminCode(this, c)
+                    say(conn, "Yönetici kodu değişti")
+                } else {
+                    say(conn, "Kod 4-12 tuş olmalı (OK, yukarı, aşağı, sol, sağ)")
+                }
+            }
+            "adminstate" -> {
+                val list = JSONArray()
+                clientInfo.entries.forEach { (c, i) ->
+                    list.put(
+                        JSONObject().put("id", i.id).put("name", i.name).put("ip", i.ip)
+                            .put("since", i.since).put("admin", adminSessions.contains(c))
+                            .put("me", c == conn)
+                    )
+                }
+                val ban = JSONArray()
+                Prefs.banned(this).forEach { (k, v) -> ban.put(JSONObject().put("id", k).put("name", v)) }
+                val info = JSONObject()
+                    .put("ip", NetUtil.localIp() ?: "")
+                    .put("mac", NetMac.get())
+                    .put("model", Prefs.tvName())
+                    .put("up", (SystemClock.elapsedRealtime() - startedAt) / 1000)
+                    .put("adminIp", Prefs.adminIp(this))
+                conn.send(
+                    JSONObject().put("t", "adminstate").put("clients", list).put("banned", ban)
+                        .put("lock", Prefs.locked(this)).put("info", info).toString()
+                )
+            }
+        }
+    }
+
     private fun say(conn: WebSocket, v: String) {
         try {
             conn.send(JSONObject().put("t", "msg").put("v", v).toString())
@@ -284,11 +414,17 @@ class ZappAccessibilityService : AccessibilityService() {
 
     private fun recvFor(conn: WebSocket): FileReceiver = recv.getOrPut(conn) {
         FileReceiver(
-            open = { n, _ -> TvFiles.open(this, n) },
+            open = { n, size ->
+                toast("Dosya alınıyor: $n")
+                ZLog.d("dosya basladi: $n ($size B)")
+                TvFiles.open(this, n)
+            },
             sendText = { try { conn.send(it) } catch (e: Exception) { } },
             onDone = { n, ok ->
                 ZLog.d("dosya alindi: $n ok=$ok")
-                say(conn, if (ok) "TV'ye alındı: $n" else "TV'de kaydedilemedi: $n")
+                val pub = if (ok) TvFiles.publish(this, n) else ""
+                toast(if (ok) "Dosya alındı: $n" else "Dosya alınamadı: $n")
+                say(conn, if (ok) "TV'ye alındı: $n$pub" else "TV'de kaydedilemedi: $n")
                 try {
                     conn.send(filesJson())
                 } catch (e: Exception) {
@@ -337,20 +473,14 @@ class ZappAccessibilityService : AccessibilityService() {
                     conn.send(filesJson())
                 }
                 "install" -> say(conn, TvFiles.install(this, j.optString("name")))
-                "layout" -> conn.send(
-                    JSONObject().put("t", "layout").put("v", LauncherStore.json(this)).toString()
-                )
-                "setlayout" -> say(conn, if (LauncherStore.save(this, j.optString("v"))) "Ana ekran kaydedildi" else "Düzen okunamadı")
-                "openlauncher" -> SysActions.open(this, "launcher")
-                "sethome" -> {
-                    val on = j.optBoolean("on")
-                    HomeMode.set(this, on)
-                    say(
-                        conn,
-                        if (on) "Zapp ana ekranı etkin. Ana ekran tuşuna basınca TV 'Zapp Ana Ekran'ı seçtirebilir: 'Her zaman' de."
-                        else "Eski ana ekrana dönüldü"
-                    )
+                "wall" -> say(conn, Wall.preset(this, j.optInt("n")))
+                "setwall" -> {
+                    val f = TvFiles.file(this, j.optString("name"))
+                    say(conn, if (f == null) "Dosya bulunamadı" else Wall.fromFile(this, f))
                 }
+                "wallclear" -> say(conn, Wall.clear(this))
+                "wallview" -> Wall.view(this, j.optString("name"))
+                "adminstate", "kick", "ban", "unban", "lock", "resetpairing", "admincode" -> adminCmd(conn, j)
                 "log" -> conn.send(JSONObject().put("t", "log").put("v", ZLog.tail(60)).toString())
             }
         } catch (e: Exception) {
@@ -395,7 +525,6 @@ class ZappAccessibilityService : AccessibilityService() {
         when (k) {
             "BACK" -> performGlobalAction(GLOBAL_ACTION_BACK)
             "HOME" -> goHome()
-            "RECENTS" -> goRecents()
             "UP", "DOWN", "LEFT", "RIGHT", "OK" -> {
                 if (GameBus.active) GameBus.emit(k) else dpad(k)
             }
@@ -432,26 +561,6 @@ class ZappAccessibilityService : AccessibilityService() {
         } catch (e: Exception) {
             ZLog.e("ana ekran", e)
         }
-    }
-
-    /** Android TV'de "son uygulamalar" ekrani genelde yoktur: bir onceki uygulamaya gecilir. */
-    private fun goRecents() {
-        val t0 = SystemClock.uptimeMillis()
-        val ok = performGlobalAction(GLOBAL_ACTION_RECENTS)
-        handler.postDelayed({
-            if (!ok || lastEvent < t0) previousApp()
-        }, 900)
-    }
-
-    private fun previousApp() {
-        val cur = try {
-            rootInActiveWindow?.packageName?.toString()
-        } catch (e: Exception) {
-            null
-        }
-        val target = if (cur != null && cur == recents.firstOrNull()) recents.getOrNull(1)
-        else recents.firstOrNull()
-        if (target != null) launchApp(target)
     }
 
     private fun dpad(k: String) {
@@ -529,11 +638,6 @@ class ZappAccessibilityService : AccessibilityService() {
             .sortedBy { it.second.lowercase() }
         val a = JSONArray()
         list.forEach { a.put(JSONObject().put("p", it.first).put("n", it.second)) }
-        val r = JSONArray()
-        val names = list.toMap()
-        recents.forEach { p ->
-            names[p]?.let { r.put(JSONObject().put("p", p).put("n", it)) }
-        }
-        return JSONObject().put("t", "apps").put("list", a).put("recent", r).toString()
+        return JSONObject().put("t", "apps").put("list", a).toString()
     }
 }

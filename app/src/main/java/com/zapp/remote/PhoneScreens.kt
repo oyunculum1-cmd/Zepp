@@ -80,6 +80,17 @@ fun PhoneRoot(onChangeMode: () -> Unit) {
     var tab by remember { mutableStateOf(if (Prefs.devices(ctx).isEmpty()) "scan" else "remote") }
     val active = devices.firstOrNull { it.id == activeId } ?: devices.firstOrNull()
     val status by RemoteClient.status.collectAsState()
+    val isAdmin by RemoteClient.admin.collectAsState()
+    val notice by RemoteClient.notice.collectAsState()
+    var intro by remember { mutableStateOf(false) }
+    var introShown by remember { mutableStateOf(false) }
+    // Yonetici oldugun anlasilinca panel animasyonla acilir (surec basina bir kez)
+    LaunchedEffect(isAdmin) {
+        if (isAdmin && !introShown) {
+            introShown = true
+            intro = true
+        }
+    }
 
     // Wi-Fi'ye bagla (internetsiz yerel agda da calissin) ve uygulamaya donunce hemen yeniden baglan
     LaunchedEffect(Unit) { NetBinder.start(ctx) }
@@ -115,6 +126,13 @@ fun PhoneRoot(onChangeMode: () -> Unit) {
     }
 
     TvLogDialog()
+    if (intro) {
+        AdminIntro(NetUtil.localIp() ?: "?") {
+            intro = false
+            tab = "admin"
+        }
+        return
+    }
     Column(Modifier.fillMaxSize()) {
         // Ust cubuk
         Row(
@@ -144,12 +162,27 @@ fun PhoneRoot(onChangeMode: () -> Unit) {
                         Status.CONNECTING -> "Bağlanıyor…"
                         Status.OFFLINE -> "Bağlantı yok · yeniden deneniyor"
                         Status.DENIED -> "Eşleşme reddedildi · QR'ı yeniden tara"
+                        Status.KICKED -> "Yönetici bağlantını kesti"
+                        Status.BANNED -> "Bu TV'den engellendin"
+                        Status.LOCKED -> "TV yeni bağlantıya kapalı"
                         Status.IDLE -> ""
                     },
                     color = Muted,
                     fontSize = 14.sp,
                 )
             }
+            if (status == Status.KICKED || status == Status.LOCKED || status == Status.OFFLINE) {
+                Spacer(Modifier.weight(1f))
+                ZButton("Yeniden bağlan") { RemoteClient.reconnect(ctx) }
+            }
+        }
+        if (notice.isNotBlank()) {
+            Text(
+                notice,
+                color = Cyan,
+                fontSize = 13.sp,
+                modifier = Modifier.padding(horizontal = 24.dp).padding(bottom = 6.dp),
+            )
         }
 
         Box(Modifier.weight(1f)) {
@@ -158,7 +191,8 @@ fun PhoneRoot(onChangeMode: () -> Unit) {
                 "kbd" -> KeyboardTab()
                 "apps" -> AppsTab()
                 "files" -> FilesTab()
-                "tv" -> TvEditTab()
+                "wall" -> WallTab()
+                "admin" -> AdminTab()
                 "game" -> GameTab()
                 "devs" -> DevicesTab(
                     devices = devices,
@@ -196,10 +230,10 @@ fun PhoneRoot(onChangeMode: () -> Unit) {
                 "kbd" to "Klavye",
                 "apps" to "Uygulama",
                 "files" to "Dosya",
-                "tv" to "TV Ekranı",
+                "wall" to "Duvar kağıdı",
                 "game" to "Oyun",
                 "devs" to "Cihazlar",
-            ).forEach { (id, label) ->
+            ).let { if (isAdmin) it + ("admin" to "Admin") else it }.forEach { (id, label) ->
                 Box(
                     Modifier
                         .width(84.dp)
@@ -234,8 +268,12 @@ fun send(t: String, vararg kv: Pair<String, Any>) {
 @Composable
 private fun RemoteTab() {
     val haptic = LocalHapticFeedback.current
+    val ctx = LocalContext.current
+    val st by RemoteClient.status.collectAsState()
     fun key(k: String) {
         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+        // TV'ye bagli degilken girilen gizli dizi yonetici modunu acar
+        if (st != Status.CONNECTED) AdminCode.feed(ctx, k)
         send("key", "k" to k)
     }
     Column(
@@ -263,7 +301,6 @@ private fun RemoteTab() {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             ZButton("Geri", Modifier.weight(1f)) { key("BACK") }
             ZButton("Ana ekran", Modifier.weight(1f)) { key("HOME") }
-            ZButton("Son uyg.", Modifier.weight(1f)) { key("RECENTS") }
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             ZButton("Ses −", Modifier.weight(1f)) { send("vol", "d" to -1) }
@@ -412,24 +449,6 @@ private fun AppsTab() {
             fontWeight = FontWeight.Bold,
             modifier = Modifier.padding(vertical = 12.dp)
         )
-        val recent by RemoteClient.recent.collectAsState()
-        if (recent.isNotEmpty()) {
-            Text("Son kullanılanlar", color = Muted, fontSize = 14.sp)
-            Row(
-                Modifier.horizontalScroll(rememberScrollState()).padding(vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                recent.forEach { a ->
-                    Box(
-                        Modifier
-                            .clip(RoundedCornerShape(50))
-                            .background(Violet)
-                            .clickable { send("app", "pkg" to a.pkg) }
-                            .padding(horizontal = 16.dp, vertical = 10.dp)
-                    ) { Text(a.name, color = Ink, fontSize = 14.sp) }
-                }
-            }
-        }
         if (apps.isEmpty()) {
             Text(
                 "Liste TV'den bekleniyor. TV'ye bağlı olduğundan emin ol.",
