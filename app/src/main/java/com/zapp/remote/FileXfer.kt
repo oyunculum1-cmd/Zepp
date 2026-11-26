@@ -214,6 +214,23 @@ object TvFiles {
         }
     }
 
+    /** Download/Zapp icindeki kopyayi da siler (ayni adli). */
+    fun removePublic(c: Context, name: String) {
+        try {
+            if (Build.VERSION.SDK_INT >= 29) {
+                c.contentResolver.delete(
+                    MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+                    "${MediaStore.MediaColumns.DISPLAY_NAME}=? AND ${MediaStore.MediaColumns.RELATIVE_PATH} LIKE ?",
+                    arrayOf(safe(name), "%Download/Zapp%"),
+                )
+            } else {
+                File(File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "Zapp"), safe(name)).delete()
+            }
+        } catch (e: Exception) {
+            ZLog.e("genel kopya silinemedi", e)
+        }
+    }
+
     /** APK ise kurulum ekranini acar. Sonuc: kullaniciya gosterilecek mesaj. */
     fun install(c: Context, name: String): String {
         val f = file(c, name) ?: return "Dosya bulunamadı"

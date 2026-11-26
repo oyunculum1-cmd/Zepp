@@ -23,6 +23,13 @@ Telefon ve TV **aynı Wi-Fi/yerel ağda** olmalı. Ağ tamamen yokken kumanda ç
 
 (v3'te "Son uygulamalar" ve "TV Ekranı düzenleme" kaldırıldı.)
 
+## v3.1 düzeltmeleri
+- Dokunmatik sekmesinde gerçek **fare imleci** (kaydır, dokun = tıkla, basılı tut = uzun tık, kaydır düğmeleri)
+- Yazı yazma: önce klavye gibi doğrudan giriş (Android 13+), olmazsa SET_TEXT, olmazsa yapıştırma; YouTube gibi uygulamalarda dener
+- Yılan menüsü ve ekranı her karede tazeleniyor (mod seçimi artık hareket eder)
+- Silinen dosya Download/Zapp kopyasıyla birlikte silinir
+- Admin gizli kodu bağlıyken de çalışır
+
 ## Admin
 - Telefonu TV'ye bağlı değilken kumandada sırayla: **OK OK OK, ▲ ▲, ▼ ▼, OK** → yönetici isteği gönderilir; TV'ye bağlanınca Admin sekmesi animasyonla açılır.
 - İlk yönetici olan telefonun cihaz kimliği ve IP'si TV'ye kaydedilir; sonraki bağlantılarda otomatik yöneticidir.

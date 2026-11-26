@@ -79,6 +79,10 @@ object AdminCode {
         if (buf.endsWith(code)) {
             buf.clear()
             Prefs.setAdminWant(ctx, code)
+            try {
+                android.widget.Toast.makeText(ctx, "Yönetici isteği gönderildi…", android.widget.Toast.LENGTH_SHORT).show()
+            } catch (e: Exception) {
+            }
             RemoteClient.reconnect(ctx)
             return true
         }

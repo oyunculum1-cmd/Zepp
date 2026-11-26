@@ -115,17 +115,52 @@ object Wall {
         return Bitmap.createScaledBitmap(crop, w, h, true)
     }
 
-    private fun apply(ctx: Context, bmp: Bitmap): String = try {
-        val wm = WallpaperManager.getInstance(ctx)
-        if (!wm.isWallpaperSupported) {
-            "Bu TV sistem duvar kağıdını desteklemiyor. 'Tam ekran göster'i dene."
+    /** Resmi Resimler/Zapp klasorune de koyar: TV'nin duvar kagidi secicisi galeriden secim sunuyorsa orada gorunur. */
+    private fun saveToGallery(ctx: Context, bmp: Bitmap): Boolean = try {
+        val name = "Zapp-duvar-" + System.currentTimeMillis() + ".jpg"
+        if (android.os.Build.VERSION.SDK_INT >= 29) {
+            val v = android.content.ContentValues().apply {
+                put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, name)
+                put(android.provider.MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
+                put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, "Pictures/Zapp")
+            }
+            val u = ctx.contentResolver.insert(android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, v)
+            if (u == null) false else {
+                ctx.contentResolver.openOutputStream(u)?.use { bmp.compress(Bitmap.CompressFormat.JPEG, 92, it) }
+                true
+            }
         } else {
-            wm.setBitmap(bmp)
-            "Duvar kağıdı ayarlandı. TV ana ekranı kendi duvar kağıdını kullanıyorsa değişmeyebilir; o zaman 'Tam ekran göster'i kullan."
+            val d = File(android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_PICTURES), "Zapp")
+            d.mkdirs()
+            java.io.FileOutputStream(File(d, name)).use { bmp.compress(Bitmap.CompressFormat.JPEG, 92, it) }
+            true
         }
     } catch (e: Exception) {
-        ZLog.e("duvar kagidi", e)
-        "Duvar kağıdı ayarlanamadı (${e.javaClass.simpleName})"
+        ZLog.e("duvar galeri", e)
+        false
+    }
+
+    private fun apply(ctx: Context, bmp: Bitmap): String {
+        val gal = saveToGallery(ctx, bmp)
+        return try {
+            val wm = WallpaperManager.getInstance(ctx)
+            if (!wm.isWallpaperSupported) {
+                "Bu TV sistem duvar kağıdını desteklemiyor." + (if (gal) " Resim, Resimler/Zapp klasörüne kaydedildi." else "")
+            } else {
+                if (android.os.Build.VERSION.SDK_INT >= 24) {
+                    wm.setBitmap(bmp, null, true, WallpaperManager.FLAG_SYSTEM or WallpaperManager.FLAG_LOCK)
+                } else {
+                    wm.setBitmap(bmp)
+                }
+                "Sistem duvar kağıdı ayarlandı." +
+                    (if (gal) " Resim ayrıca Resimler/Zapp klasörüne kaydedildi." else "") +
+                    " TV'nin kendi ana ekranı kendi listesini kullanıyorsa değişmeyebilir."
+            }
+        } catch (e: Exception) {
+            ZLog.e("duvar kagidi", e)
+            "Duvar kağıdı ayarlanamadı: ${e.javaClass.simpleName} ${e.message ?: ""}" +
+                (if (gal) " (Resim Resimler/Zapp klasörüne kaydedildi.)" else "")
+        }
     }
 
     fun preset(ctx: Context, n: Int): String = apply(ctx, presetBitmap(ctx, n))

@@ -273,7 +273,7 @@ private fun RemoteTab() {
     fun key(k: String) {
         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
         // TV'ye bagli degilken girilen gizli dizi yonetici modunu acar
-        if (st != Status.CONNECTED) AdminCode.feed(ctx, k)
+        AdminCode.feed(ctx, k)
         send("key", "k" to k)
     }
     Column(
@@ -321,10 +321,19 @@ private fun RemoteTab() {
 @Composable
 private fun TouchTab() {
     val haptic = LocalHapticFeedback.current
+    var mouse by remember { mutableStateOf(true) }
+    DisposableEffect(mouse) {
+        send("mouse", "on" to mouse)
+        onDispose { send("mouse", "on" to false) }
+    }
     Column(
         Modifier.fillMaxSize().padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            ZButton("Fare", Modifier.weight(1f), primary = mouse) { mouse = true }
+            ZButton("Yön tuşları", Modifier.weight(1f), primary = !mouse) { mouse = false }
+        }
         Box(
             Modifier
                 .weight(1f)
@@ -332,33 +341,63 @@ private fun TouchTab() {
                 .clip(RoundedCornerShape(36.dp))
                 .background(Panel)
                 .border(2.dp, Line, RoundedCornerShape(36.dp))
-                .pointerInput(Unit) {
-                    detectTapGestures(onTap = {
-                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        send("key", "k" to "OK")
-                    })
+                .pointerInput(mouse) {
+                    detectTapGestures(
+                        onTap = {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            if (mouse) send("mclick") else send("key", "k" to "OK")
+                        },
+                        onLongPress = {
+                            if (mouse) {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                send("mclick", "long" to true)
+                            }
+                        },
+                    )
                 }
-                .pointerInput(Unit) {
+                .pointerInput(mouse) {
                     var ax = 0f
                     var ay = 0f
+                    var last = 0L
+                    var px = 0f
+                    var py = 0f
                     val step = 70f
                     detectDragGestures(
                         onDragStart = {
                             ax = 0f
                             ay = 0f
+                            px = 0f
+                            py = 0f
                         },
                         onDrag = { change, drag ->
                             change.consume()
-                            ax += drag.x
-                            ay += drag.y
-                            if (abs(ax) > step && abs(ax) >= abs(ay)) {
-                                send("key", "k" to if (ax > 0) "RIGHT" else "LEFT")
-                                ax = 0f
-                                ay = 0f
-                            } else if (abs(ay) > step) {
-                                send("key", "k" to if (ay > 0) "DOWN" else "UP")
-                                ax = 0f
-                                ay = 0f
+                            if (mouse) {
+                                px += drag.x * 2.4f
+                                py += drag.y * 2.4f
+                                val now = System.currentTimeMillis()
+                                if (now - last >= 20) {
+                                    send("mv", "dx" to px.toDouble(), "dy" to py.toDouble())
+                                    px = 0f
+                                    py = 0f
+                                    last = now
+                                }
+                            } else {
+                                ax += drag.x
+                                ay += drag.y
+                                if (abs(ax) > step && abs(ax) >= abs(ay)) {
+                                    send("key", "k" to if (ax > 0) "RIGHT" else "LEFT")
+                                    ax = 0f
+                                    ay = 0f
+                                } else if (abs(ay) > step) {
+                                    send("key", "k" to if (ay > 0) "DOWN" else "UP")
+                                    ax = 0f
+                                    ay = 0f
+                                }
+                            }
+                        },
+                        onDragEnd = {
+                            if (mouse && (px != 0f || py != 0f)) {
+                                send("mv", "dx" to px.toDouble(), "dy" to py.toDouble())
                             }
                         },
                     )
@@ -366,15 +405,25 @@ private fun TouchTab() {
             contentAlignment = Alignment.BottomCenter,
         ) {
             Text(
-                "Kaydır = yön · Dokun = seç",
+                if (mouse) "Kaydır = imleci oynat · Dokun = tıkla · Basılı tut = uzun tık"
+                else "Kaydır = yön · Dokun = seç",
                 color = Muted,
                 fontSize = 16.sp,
+                textAlign = TextAlign.Center,
                 modifier = Modifier.padding(24.dp),
             )
         }
+        if (mouse) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                ZButton("▲ Yukarı kaydır", Modifier.weight(1f)) { send("mscroll", "d" to -1) }
+                ZButton("▼ Aşağı kaydır", Modifier.weight(1f)) { send("mscroll", "d" to 1) }
+            }
+        }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             ZButton("Geri", Modifier.weight(1f)) { send("key", "k" to "BACK") }
-            ZButton("Seç", Modifier.weight(1f), primary = true) { send("key", "k" to "OK") }
+            ZButton("Seç", Modifier.weight(1f), primary = true) {
+                if (mouse) send("mclick") else send("key", "k" to "OK")
+            }
             ZButton("Ana ekran", Modifier.weight(1f)) { send("key", "k" to "HOME") }
         }
     }

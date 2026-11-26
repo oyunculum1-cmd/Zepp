@@ -412,13 +412,13 @@ private fun SnakeGame() {
         }
     }
 
+    val f = frame  // kompozisyonda okunur: menu, HUD ve katmanlar her karede tazelenir
     Box(Modifier.fillMaxSize().background(Color(0xFF070A1A))) {
         Canvas(Modifier.fillMaxSize()) {
-            val f = frame  // her karede yeniden ciz
             drawGame(e, f)
         }
         val ph = e.phase
-        if (ph == Phase.PLAY || ph == Phase.PAUSE) Hud(e, frame)
+        if (ph == Phase.PLAY || ph == Phase.PAUSE) Hud(e, f)
         if (ph == Phase.MENU) MenuOverlay(e)
         if (ph == Phase.PAUSE) Overlay("Duraklatıldı", "OK ile devam et")
         if (ph == Phase.OVER) OverOverlay(e)

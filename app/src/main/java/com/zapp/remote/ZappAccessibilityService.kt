@@ -1,6 +1,16 @@
 package com.zapp.remote
 
 import android.accessibilityservice.AccessibilityService
+import android.accessibilityservice.GestureDescription
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.Path
+import android.graphics.PixelFormat
+import android.graphics.Rect
+import android.view.Gravity
+import android.view.WindowManager
 import android.content.Context
 import android.content.Intent
 import android.media.AudioManager
@@ -113,7 +123,7 @@ class ZappAccessibilityService : AccessibilityService() {
     // ---------------------------------------------------------------- sunucu
 
     companion object {
-        const val PROTO = 3
+        const val PROTO = 4
     }
 
     private val fileCtl = setOf("fbeg", "fend", "fack", "fdone")
@@ -178,6 +188,7 @@ class ZappAccessibilityService : AccessibilityService() {
     }
 
     private fun stopAll() {
+        mouseMode(false)
         stopServerOnly()
         unregisterNsd()
         handler.removeCallbacksAndMessages(null)
@@ -469,9 +480,16 @@ class ZappAccessibilityService : AccessibilityService() {
                 "ls" -> conn.send(filesJson())
                 "get" -> sendFileToPhone(conn, j.optString("name"))
                 "rm" -> {
-                    TvFiles.file(this, j.optString("name"))?.delete()
+                    val n = j.optString("name")
+                    val ok = TvFiles.file(this, n)?.delete() ?: false
+                    TvFiles.removePublic(this, n)
+                    say(conn, if (ok) "Silindi: $n" else "Silinemedi: $n")
                     conn.send(filesJson())
                 }
+                "mouse" -> mouseMode(j.optBoolean("on"))
+                "mv" -> mouseMove(j.optDouble("dx").toFloat(), j.optDouble("dy").toFloat())
+                "mclick" -> mouseClick(j.optBoolean("long"))
+                "mscroll" -> mouseScroll(j.optInt("d"))
                 "install" -> say(conn, TvFiles.install(this, j.optString("name")))
                 "wall" -> say(conn, Wall.preset(this, j.optInt("n")))
                 "setwall" -> {
@@ -607,13 +625,216 @@ class ZappAccessibilityService : AccessibilityService() {
         }
     }
 
+    private fun findEditable(n: AccessibilityNodeInfo?, depth: Int = 0): AccessibilityNodeInfo? {
+        if (n == null || depth > 25) return null
+        if (n.isEditable && (n.isFocused || n.isAccessibilityFocused)) return n
+        for (i in 0 until n.childCount) {
+            findEditable(n.getChild(i), depth + 1)?.let { return it }
+        }
+        return null
+    }
+
+    private fun anyEditable(n: AccessibilityNodeInfo?, depth: Int = 0): AccessibilityNodeInfo? {
+        if (n == null || depth > 25) return null
+        if (n.isEditable && n.isVisibleToUser) return n
+        for (i in 0 until n.childCount) {
+            anyEditable(n.getChild(i), depth + 1)?.let { return it }
+        }
+        return null
+    }
+
+    /** Telefondan gelen yaziyi once Android 13+ giris yoluyla, olmazsa SET_TEXT, olmazsa panodan yapistirarak yazar. */
     private fun setFocusedText(text: String) {
+        // 1) Android 13+: klavye gibi dogrudan metin gir (YouTube gibi uygulamalarda da calisir)
+        if (Build.VERSION.SDK_INT >= 33) {
+            try {
+                val ic = imeConn?.currentInputConnection
+                if (ic != null) {
+                    ic.beginBatchEdit()
+                    ic.deleteSurroundingText(2000, 2000)
+                    ic.commitText(text, 1)
+                    ic.endBatchEdit()
+                    return
+                }
+            } catch (e: Exception) {
+                ZLog.e("ime yazi", e)
+            }
+        }
         val root = rootInActiveWindow ?: return
-        val node = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT) ?: return
+        val node = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+            ?: findEditable(root)
+            ?: anyEditable(root)
+            ?: return
+        // 2) Normal yol
         val args = Bundle().apply {
             putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text)
         }
-        node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
+        val ok = node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
+        node.refresh()
+        if (ok && node.text?.toString() == text) return
+        // 3) Panoya koy ve yapistir
+        try {
+            (getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager)
+                .setPrimaryClip(ClipData.newPlainText("zapp", text))
+            node.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
+            val sel = Bundle().apply {
+                putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, 0)
+                putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, node.text?.length ?: 0)
+            }
+            node.performAction(AccessibilityNodeInfo.ACTION_SET_SELECTION, sel)
+            node.performAction(AccessibilityNodeInfo.ACTION_PASTE)
+        } catch (e: Exception) {
+            ZLog.e("yapistir", e)
+        }
+    }
+
+    // ------------------------------------------------------------------ fare
+
+    private var imeConn: AccessibilityService.InputMethod? = null
+
+    override fun onCreateInputMethod(): AccessibilityService.InputMethod {
+        val m = super.onCreateInputMethod()
+        imeConn = m
+        return m
+    }
+
+    private var cursor: View? = null
+    private var cursorLp: WindowManager.LayoutParams? = null
+    private var cx = 0f
+    private var cy = 0f
+
+    private fun screenSize(): Pair<Int, Int> {
+        val dm = resources.displayMetrics
+        return dm.widthPixels to dm.heightPixels
+    }
+
+    private fun mouseMode(on: Boolean) {
+        handler.post {
+            try {
+                val wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
+                if (!on) {
+                    cursor?.let { wm.removeView(it) }
+                    cursor = null
+                    return@post
+                }
+                if (cursor != null) return@post
+                val (w, h) = screenSize()
+                cx = w / 2f
+                cy = h / 2f
+                val d = resources.displayMetrics.density
+                val size = (34 * d).toInt()
+                val v = object : View(this) {
+                    private val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFFFFFF.toInt() }
+                    private val edge = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                        color = 0xFF111111.toInt()
+                        style = Paint.Style.STROKE
+                        strokeWidth = 2.5f * d
+                    }
+
+                    override fun onDraw(c: Canvas) {
+                        val p = Path().apply {
+                            moveTo(2f * d, 2f * d)
+                            lineTo(2f * d, 26f * d)
+                            lineTo(8f * d, 20f * d)
+                            lineTo(13f * d, 31f * d)
+                            lineTo(18f * d, 29f * d)
+                            lineTo(13f * d, 18f * d)
+                            lineTo(22f * d, 18f * d)
+                            close()
+                        }
+                        c.drawPath(p, fill)
+                        c.drawPath(p, edge)
+                    }
+                }
+                val lp = WindowManager.LayoutParams(
+                    size, size,
+                    WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+                    WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                        WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                        WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+                    PixelFormat.TRANSLUCENT,
+                )
+                lp.gravity = Gravity.TOP or Gravity.START
+                lp.x = cx.toInt()
+                lp.y = cy.toInt()
+                wm.addView(v, lp)
+                cursor = v
+                cursorLp = lp
+            } catch (e: Exception) {
+                ZLog.e("fare imleci", e)
+            }
+        }
+    }
+
+    private fun mouseMove(dx: Float, dy: Float) {
+        if (cursor == null) mouseMode(true)
+        handler.post {
+            val (w, h) = screenSize()
+            cx = (cx + dx).coerceIn(0f, (w - 2).toFloat())
+            cy = (cy + dy).coerceIn(0f, (h - 2).toFloat())
+            val lp = cursorLp ?: return@post
+            lp.x = cx.toInt()
+            lp.y = cy.toInt()
+            try {
+                (getSystemService(Context.WINDOW_SERVICE) as WindowManager).updateViewLayout(cursor, lp)
+            } catch (e: Exception) {
+            }
+            // Kenara itince listeyi kaydir (kolay gezinme)
+            if (cy <= 2f && dy < -2f) mouseScroll(-1)
+            if (cy >= h - 4f && dy > 2f) mouseScroll(1)
+        }
+    }
+
+    private fun nodeAt(n: AccessibilityNodeInfo?, x: Int, y: Int, depth: Int = 0): AccessibilityNodeInfo? {
+        if (n == null || depth > 30) return null
+        val r = Rect()
+        n.getBoundsInScreen(r)
+        if (!r.contains(x, y) || !n.isVisibleToUser) return null
+        for (i in n.childCount - 1 downTo 0) {
+            nodeAt(n.getChild(i), x, y, depth + 1)?.let { return it }
+        }
+        var c: AccessibilityNodeInfo? = n
+        while (c != null) {
+            if (c.isClickable || c.isEditable) return c
+            c = c.parent
+        }
+        return null
+    }
+
+    private fun mouseClick(long: Boolean) {
+        handler.post {
+            val x = cx.toInt()
+            val y = cy.toInt()
+            if (!long) {
+                val n = nodeAt(rootInActiveWindow, x, y)
+                if (n != null && n.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+                    if (n.isEditable) n.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
+                    return@post
+                }
+            }
+            val p = Path().apply { moveTo(cx, cy) }
+            val g = GestureDescription.Builder()
+                .addStroke(GestureDescription.StrokeDescription(p, 0, if (long) 700 else 60))
+                .build()
+            dispatchGesture(g, null, null)
+        }
+    }
+
+    private fun mouseScroll(d: Int) {
+        handler.post {
+            val (w, h) = screenSize()
+            val x = cx.coerceIn(10f, w - 10f)
+            val len = h * 0.35f
+            val y0 = cy.coerceIn(len, h - len)
+            val p = Path().apply {
+                moveTo(x, y0)
+                lineTo(x, y0 - d * len)
+            }
+            val g = GestureDescription.Builder()
+                .addStroke(GestureDescription.StrokeDescription(p, 0, 260))
+                .build()
+            dispatchGesture(g, null, null)
+        }
     }
 
     private fun launchApp(pkg: String) {

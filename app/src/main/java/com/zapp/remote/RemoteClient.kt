@@ -330,8 +330,10 @@ object RemoteClient {
                 admin.value = j.optBoolean("admin")
                 tvVer.value = j.optInt("ver", 1)
                 if (admin.value && Prefs.adminWant(ctx).isNotEmpty()) Prefs.setAdminWant(ctx, "")
-                if (tvVer.value < 3) {
-                    notice.value = "TV'deki Zapp ESKİ sürüm. Dosya, admin ve duvar kağıdı için TV'ye de yeni APK'yı kur."
+                if (tvVer.value < 4) {
+                    notice.value = "TV'deki Zapp ESKİ sürüm (v${tvVer.value}). Dosya, admin, duvar kağıdı, fare ve yazı için TV'ye de yeni APK'yı kur."
+                } else if (notice.value.startsWith("TV'deki Zapp ESK")) {
+                    notice.value = ""
                 }
                 val mac = j.optString("mac")
                 if (mac.isNotEmpty() && mac != d.mac) {
