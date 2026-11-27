@@ -677,10 +677,8 @@ class ZappAccessibilityService : AccessibilityService() {
             try {
                 val ic = imeConn?.currentInputConnection
                 if (ic != null) {
-                    ic.beginBatchEdit()
                     ic.deleteSurroundingText(2000, 2000)
-                    ic.commitText(text, 1)
-                    ic.endBatchEdit()
+                    ic.commitText(text, 1, null)
                     return
                 }
             } catch (e: Exception) {
@@ -717,9 +715,9 @@ class ZappAccessibilityService : AccessibilityService() {
 
     // ------------------------------------------------------------------ fare
 
-    private var imeConn: AccessibilityService.InputMethod? = null
+    private var imeConn: android.accessibilityservice.InputMethod? = null
 
-    override fun onCreateInputMethod(): AccessibilityService.InputMethod {
+    override fun onCreateInputMethod(): android.accessibilityservice.InputMethod {
         val m = super.onCreateInputMethod()
         imeConn = m
         return m
