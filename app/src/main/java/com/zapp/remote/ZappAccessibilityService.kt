@@ -91,10 +91,11 @@ class ZappAccessibilityService : AccessibilityService() {
     override fun onServiceConnected() {
         super.onServiceConnected()
         ZLog.d("servis baglandi (izin acik)")
-        startServer()
-        registerNsd()
-        watchNetwork()
-        publish()
+        // Her adim ayri korunur: biri hata verse bile servis cokmez (Android cokten servisin iznini kapatir)
+        try { startServer() } catch (e: Throwable) { ZLog.e("startServer", e) }
+        try { registerNsd() } catch (e: Throwable) { ZLog.e("registerNsd", e) }
+        try { watchNetwork() } catch (e: Throwable) { ZLog.e("watchNetwork", e) }
+        try { publish() } catch (e: Throwable) { ZLog.e("publish", e) }
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
