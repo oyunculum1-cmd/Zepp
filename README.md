@@ -23,6 +23,11 @@ Telefon ve TV **aynı Wi-Fi/yerel ağda** olmalı. Ağ tamamen yokken kumanda ç
 
 (v3'te "Son uygulamalar" ve "TV Ekranı düzenleme" kaldırıldı.)
 
+## v3.2
+- Admin paneli router arayüzü gibi: üstte Ağ—TV—Müşteriler şeması, 4 kutu (Cihazlar, Güvenlik, Ağ, Sistem), sunucuyu yeniden başlat
+- Yeni açılış: beyaz nokta düşer, havada donar, mor ışık, internet simgesine dönüşür (sesli)
+- YouTube gibi uygulamalarda yön tuşu çalışmazsa: sağ/sol = ileri/geri sar, diğerleri fare imleciyle
+
 ## v3.1 düzeltmeleri
 - Dokunmatik sekmesinde gerçek **fare imleci** (kaydır, dokun = tıkla, basılı tut = uzun tık, kaydır düğmeleri)
 - Yazı yazma: önce klavye gibi doğrudan giriş (Android 13+), olmazsa SET_TEXT, olmazsa yapıştırma; YouTube gibi uygulamalarda dener

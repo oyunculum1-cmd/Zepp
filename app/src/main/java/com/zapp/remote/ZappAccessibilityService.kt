@@ -357,6 +357,15 @@ class ZappAccessibilityService : AccessibilityService() {
                 Prefs.setLocked(this, j.optBoolean("on"))
                 say(conn, if (j.optBoolean("on")) "Yeni bağlantılar kapatıldı" else "Yeni bağlantılara izin verildi")
             }
+            "restartsrv" -> {
+                say(conn, "Sunucu yeniden başlatılıyor…")
+                handler.postDelayed({
+                    stopServerOnly()
+                    startServer()
+                    registerNsd()
+                    publish()
+                }, 500)
+            }
             "resetpairing" -> {
                 say(conn, "Tüm eşleşmeler sıfırlandı. TV'de yeni QR çıkacak.")
                 handler.postDelayed({
@@ -498,7 +507,7 @@ class ZappAccessibilityService : AccessibilityService() {
                 }
                 "wallclear" -> say(conn, Wall.clear(this))
                 "wallview" -> Wall.view(this, j.optString("name"))
-                "adminstate", "kick", "ban", "unban", "lock", "resetpairing", "admincode" -> adminCmd(conn, j)
+                "adminstate", "kick", "ban", "unban", "lock", "resetpairing", "admincode", "restartsrv" -> adminCmd(conn, j)
                 "log" -> conn.send(JSONObject().put("t", "log").put("v", ZLog.tail(60)).toString())
             }
         } catch (e: Exception) {
@@ -594,16 +603,32 @@ class ZappAccessibilityService : AccessibilityService() {
             if (performGlobalAction(action)) return
         }
         // Daha eski TV'ler: odagi ekrandaki ogeler arasinda elle tasi
-        focusFallback(k)
+        if (!focusFallback(k)) {
+            // YouTube gibi ozel cizimli uygulamalar erisilebilirlik agaci vermez: sag/sol = ileri/geri sar, olmazsa fare imleci kullan
+            if ((k == "LEFT" || k == "RIGHT") && audio.isMusicActive) {
+                media(if (k == "LEFT") KeyEvent.KEYCODE_MEDIA_REWIND else KeyEvent.KEYCODE_MEDIA_FAST_FORWARD)
+            } else if (k == "OK") {
+                if (cursor != null) mouseClick(false)
+            } else {
+                // imlec aciksa yon tusu kadar oynat
+                if (cursor == null) mouseMode(true)
+                val step = 120f
+                mouseMove(
+                    when (k) { "LEFT" -> -step; "RIGHT" -> step; else -> 0f },
+                    when (k) { "UP" -> -step; "DOWN" -> step; else -> 0f },
+                )
+            }
+        }
     }
 
-    private fun focusFallback(k: String) {
-        val root = rootInActiveWindow ?: return
+    private fun focusFallback(k: String): Boolean {
+        val root = rootInActiveWindow ?: return false
         val current = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
             ?: root.findFocus(AccessibilityNodeInfo.FOCUS_ACCESSIBILITY)
         if (k == "OK") {
+            if (current == null) return false
             clickNode(current)
-            return
+            return true
         }
         val dir = when (k) {
             "UP" -> View.FOCUS_UP
@@ -611,10 +636,12 @@ class ZappAccessibilityService : AccessibilityService() {
             "LEFT" -> View.FOCUS_LEFT
             else -> View.FOCUS_RIGHT
         }
-        val target = (current ?: root).focusSearch(dir) ?: return
+        val target = (current ?: root).focusSearch(dir) ?: return false
+        if (target == current) return false
         if (!target.performAction(AccessibilityNodeInfo.ACTION_FOCUS)) {
-            target.performAction(AccessibilityNodeInfo.ACTION_ACCESSIBILITY_FOCUS)
+            return target.performAction(AccessibilityNodeInfo.ACTION_ACCESSIBILITY_FOCUS)
         }
+        return true
     }
 
     private fun clickNode(n: AccessibilityNodeInfo?) {
