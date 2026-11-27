@@ -173,11 +173,11 @@ fun PowerRow() {
 @Composable
 fun MediaRow() {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        ZButton("⏮", Modifier.weight(1f)) { send("key", "k" to "PREV") }
-        ZButton("⏪", Modifier.weight(1f)) { send("key", "k" to "REW") }
-        ZButton("⏯", Modifier.weight(1f), primary = true) { send("key", "k" to "PLAYPAUSE") }
-        ZButton("⏩", Modifier.weight(1f)) { send("key", "k" to "FF") }
-        ZButton("⏭", Modifier.weight(1f)) { send("key", "k" to "NEXT") }
+        ZButton("", icon = Ic.PREV, modifier = Modifier.weight(1f)) { send("key", "k" to "PREV") }
+        ZButton("", icon = Ic.REW, modifier = Modifier.weight(1f)) { send("key", "k" to "REW") }
+        ZButton("", icon = Ic.PLAYPAUSE, modifier = Modifier.weight(1f), primary = true) { send("key", "k" to "PLAYPAUSE") }
+        ZButton("", icon = Ic.FF, modifier = Modifier.weight(1f)) { send("key", "k" to "FF") }
+        ZButton("", icon = Ic.NEXT, modifier = Modifier.weight(1f)) { send("key", "k" to "NEXT") }
     }
 }
 
@@ -266,10 +266,10 @@ fun GameTab() {
         )
         ZButton("Oyunu TV'de aç", Modifier.fillMaxWidth(), primary = true) { send("game") }
         Box(Modifier.size(264.dp).clip(CircleShape).background(Panel)) {
-            PadKey("▲", Modifier.align(Alignment.TopCenter).size(88.dp)) { send("key", "k" to "UP") }
-            PadKey("▼", Modifier.align(Alignment.BottomCenter).size(88.dp)) { send("key", "k" to "DOWN") }
-            PadKey("◀", Modifier.align(Alignment.CenterStart).size(88.dp)) { send("key", "k" to "LEFT") }
-            PadKey("▶", Modifier.align(Alignment.CenterEnd).size(88.dp)) { send("key", "k" to "RIGHT") }
+            PadKey("UP", Modifier.align(Alignment.TopCenter).size(88.dp)) { send("key", "k" to "UP") }
+            PadKey("DOWN", Modifier.align(Alignment.BottomCenter).size(88.dp)) { send("key", "k" to "DOWN") }
+            PadKey("LEFT", Modifier.align(Alignment.CenterStart).size(88.dp)) { send("key", "k" to "LEFT") }
+            PadKey("RIGHT", Modifier.align(Alignment.CenterEnd).size(88.dp)) { send("key", "k" to "RIGHT") }
             Box(
                 Modifier
                     .align(Alignment.Center)

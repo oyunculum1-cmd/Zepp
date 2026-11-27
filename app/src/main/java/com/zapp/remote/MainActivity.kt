@@ -53,12 +53,26 @@ fun isTv(ctx: Context): Boolean {
 @Composable
 fun App() {
     val ctx = LocalContext.current
-    var splash by remember { mutableStateOf(true) }
+    var splash by remember { mutableStateOf(!Prefs.splashSeen(ctx)) }
     var mode by remember { mutableStateOf(Prefs.mode(ctx)) }
 
     LaunchedEffect(Unit) {
-        delay(3700)
-        splash = false
+        if (splash) {
+            Prefs.setSplashSeen(ctx)   // bir kez gosterilir, bir daha acilmaz
+            delay(3700)
+            splash = false
+        }
+    }
+
+    // TV modunda izin kapaliysa (adb izni verildiyse) hemen yeniden acilir ve koruma baslar
+    LaunchedEffect(mode) {
+        if (mode == "tv") {
+            try {
+                A11yGuard.ensure(ctx)
+                A11yGuard.start(ctx)
+            } catch (e: Throwable) {
+            }
+        }
     }
 
     Box(Modifier.fillMaxSize().background(Bg).systemBarsPadding()) {
@@ -110,6 +124,7 @@ fun ModeSelect(onPick: (String) -> Unit) {
                     highlighted = tv,
                     autoFocus = tv,
                     modifier = m,
+                    icon = Ic.TV,
                 ) { onPick("tv") }
             }
             val phoneCard: @Composable (Modifier) -> Unit = { m ->
@@ -119,6 +134,7 @@ fun ModeSelect(onPick: (String) -> Unit) {
                     highlighted = !tv,
                     autoFocus = !tv,
                     modifier = m,
+                    icon = Ic.PHONE,
                 ) { onPick("phone") }
             }
             if (wide) {

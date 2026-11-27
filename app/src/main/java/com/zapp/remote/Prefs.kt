@@ -25,6 +25,12 @@ object Prefs {
     private fun sp(c: Context) = c.getSharedPreferences("zapp", Context.MODE_PRIVATE)
 
     // ---- Ortak: "tv" veya "phone" secimi (ilk acilista bir kez sorulur) ----
+    fun splashSeen(c: Context): Boolean = sp(c).getBoolean("splash_seen", false)
+
+    fun setSplashSeen(c: Context) {
+        sp(c).edit().putBoolean("splash_seen", true).apply()
+    }
+
     fun mode(c: Context): String? = sp(c).getString("mode", null)
 
     fun setMode(c: Context, m: String?) {

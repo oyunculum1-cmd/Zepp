@@ -500,7 +500,7 @@ private fun MenuOverlay(e: Engine) {
                     }
                 }
             }
-            Text("◀ ▶ mod seç   ·   OK başla   ·   oyunda OK = duraklat", color = Color(0xFF9AA3C7), fontSize = 20.sp)
+            Text("Sol / Sağ mod seç   ·   OK başla   ·   oyunda OK = duraklat", color = Color(0xFF9AA3C7), fontSize = 20.sp)
         }
     }
 }

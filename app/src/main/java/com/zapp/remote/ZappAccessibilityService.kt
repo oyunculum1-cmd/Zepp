@@ -82,7 +82,6 @@ class ZappAccessibilityService : AccessibilityService() {
     @Volatile
     private var lastEvent = 0L
     private val clientInfo = ConcurrentHashMap<WebSocket, CInfo>()
-    private val adminSessions = java.util.Collections.newSetFromMap(ConcurrentHashMap<WebSocket, Boolean>())
     private val startedAt = SystemClock.elapsedRealtime()
     private val sleepRunnable = Runnable { sleepNow() }
 
@@ -96,6 +95,7 @@ class ZappAccessibilityService : AccessibilityService() {
         try { registerNsd() } catch (e: Throwable) { ZLog.e("registerNsd", e) }
         try { watchNetwork() } catch (e: Throwable) { ZLog.e("watchNetwork", e) }
         try { publish() } catch (e: Throwable) { ZLog.e("publish", e) }
+        try { A11yGuard.start(this) } catch (e: Throwable) { ZLog.e("guard", e) }
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -161,7 +161,6 @@ class ZappAccessibilityService : AccessibilityService() {
                 recv.remove(conn)?.abort()
                 gates.remove(conn)
                 clientInfo.remove(conn)
-                adminSessions.remove(conn)
             },
             onFatal = {
                 handler.postDelayed({
@@ -285,136 +284,14 @@ class ZappAccessibilityService : AccessibilityService() {
     private fun ipOf(conn: WebSocket): String =
         conn.remoteSocketAddress?.address?.hostAddress ?: ""
 
-    private fun isAdmin(conn: WebSocket) = adminSessions.contains(conn)
-
-    /** Baglanti kabul politikasi: yasak, kilit ve admin tanima (cihaz kimligi + IP ogrenme). */
+    /** Baglanti kabul politikasi: cihaz bilgisini kaydeder. */
     private fun authPolicy(conn: WebSocket, j: JSONObject): JSONObject {
         val dev = j.optString("dev").ifBlank { "eski-" + ipOf(conn) }
         val name = j.optString("name").ifBlank { "Bilinmeyen telefon" }
         val ip = ipOf(conn)
-        val out = JSONObject().put("ver", PROTO)
-        var admin = Prefs.adminDev(this).isNotEmpty() && Prefs.adminDev(this) == dev
-        val adm = j.optString("adm")
-        if (!admin && adm.isNotEmpty() && Prefs.hashOf(adm) == Prefs.adminCodeHash(this)) {
-            Prefs.setAdmin(this, dev, ip)
-            ZLog.d("yeni admin: $name ($ip)")
-            admin = true
-        }
-        if (admin) {
-            if (Prefs.adminIp(this) != ip) Prefs.setAdmin(this, dev, ip)
-        } else {
-            if (Prefs.banned(this).containsKey(dev)) return out.put("deny", "banned")
-            if (Prefs.locked(this)) return out.put("deny", "locked")
-        }
         clientInfo[conn] = CInfo(dev, name, ip, System.currentTimeMillis())
-        if (admin) adminSessions.add(conn) else adminSessions.remove(conn)
-        out.put("admin", admin)
-        ZLog.d("baglandi: $name ($ip) admin=$admin")
-        return out
-    }
-
-    private fun closeWith(c: WebSocket, type: String) {
-        try {
-            c.send("{\"t\":\"$type\"}")
-            c.close()
-        } catch (e: Exception) {
-        }
-    }
-
-    private fun adminCmd(conn: WebSocket, j: JSONObject) {
-        if (!isAdmin(conn)) {
-            say(conn, "Yönetici yetkisi yok")
-            return
-        }
-        when (j.optString("t")) {
-            "kick" -> {
-                val id = j.optString("id")
-                clientInfo.entries.filter { it.value.id == id && it.key != conn }.forEach { (c, i) ->
-                    closeWith(c, "kicked")
-                    ZLog.d("baglanti kesildi: ${i.name}")
-                    say(conn, "Bağlantı kesildi: ${i.name}")
-                }
-            }
-            "ban" -> {
-                val id = j.optString("id")
-                val i = clientInfo.values.firstOrNull { it.id == id }
-                if (id == Prefs.adminDev(this)) {
-                    say(conn, "Yönetici engellenemez")
-                } else {
-                    val m = Prefs.banned(this).toMutableMap()
-                    m[id] = i?.name ?: j.optString("name", id)
-                    Prefs.setBanned(this, m)
-                    clientInfo.entries.filter { it.value.id == id }.forEach { (c, _) -> closeWith(c, "banned") }
-                    say(conn, "Engellendi: ${m[id]}")
-                }
-            }
-            "unban" -> {
-                val m = Prefs.banned(this).toMutableMap()
-                m.remove(j.optString("id"))
-                Prefs.setBanned(this, m)
-                say(conn, "Engel kaldırıldı")
-            }
-            "lock" -> {
-                Prefs.setLocked(this, j.optBoolean("on"))
-                say(conn, if (j.optBoolean("on")) "Yeni bağlantılar kapatıldı" else "Yeni bağlantılara izin verildi")
-            }
-            "restartsrv" -> {
-                say(conn, "Sunucu yeniden başlatılıyor…")
-                handler.postDelayed({
-                    stopServerOnly()
-                    startServer()
-                    registerNsd()
-                    publish()
-                }, 500)
-            }
-            "resetpairing" -> {
-                say(conn, "Tüm eşleşmeler sıfırlandı. TV'de yeni QR çıkacak.")
-                handler.postDelayed({
-                    Prefs.resetToken(this)
-                    server?.connections?.toList()?.forEach {
-                        try {
-                            it.close()
-                        } catch (e: Exception) {
-                        }
-                    }
-                    stopServerOnly()
-                    startServer()
-                    registerNsd()
-                    publish()
-                }, 600)
-            }
-            "admincode" -> {
-                val c = j.optString("code")
-                if (c.length in 4..12 && c.all { it in "OUDLR" }) {
-                    Prefs.setAdminCode(this, c)
-                    say(conn, "Yönetici kodu değişti")
-                } else {
-                    say(conn, "Kod 4-12 tuş olmalı (OK, yukarı, aşağı, sol, sağ)")
-                }
-            }
-            "adminstate" -> {
-                val list = JSONArray()
-                clientInfo.entries.forEach { (c, i) ->
-                    list.put(
-                        JSONObject().put("id", i.id).put("name", i.name).put("ip", i.ip)
-                            .put("since", i.since).put("admin", adminSessions.contains(c))
-                            .put("me", c == conn)
-                    )
-                }
-                val ban = JSONArray()
-                Prefs.banned(this).forEach { (k, v) -> ban.put(JSONObject().put("id", k).put("name", v)) }
-                val info = JSONObject()
-                    .put("ip", NetUtil.localIp() ?: "")
-                    .put("mac", NetMac.get())
-                    .put("model", Prefs.tvName())
-                    .put("up", (SystemClock.elapsedRealtime() - startedAt) / 1000)
-                    .put("adminIp", Prefs.adminIp(this))
-                conn.send(
-                    JSONObject().put("t", "adminstate").put("clients", list).put("banned", ban)
-                        .put("lock", Prefs.locked(this)).put("info", info).toString()
-                )
-            }
-        }
+        ZLog.d("baglandi: $name ($ip)")
+        return JSONObject().put("ver", PROTO)
     }
 
     private fun say(conn: WebSocket, v: String) {
@@ -501,14 +378,6 @@ class ZappAccessibilityService : AccessibilityService() {
                 "mclick" -> mouseClick(j.optBoolean("long"))
                 "mscroll" -> mouseScroll(j.optInt("d"))
                 "install" -> say(conn, TvFiles.install(this, j.optString("name")))
-                "wall" -> say(conn, Wall.preset(this, j.optInt("n")))
-                "setwall" -> {
-                    val f = TvFiles.file(this, j.optString("name"))
-                    say(conn, if (f == null) "Dosya bulunamadı" else Wall.fromFile(this, f))
-                }
-                "wallclear" -> say(conn, Wall.clear(this))
-                "wallview" -> Wall.view(this, j.optString("name"))
-                "adminstate", "kick", "ban", "unban", "lock", "resetpairing", "admincode", "restartsrv" -> adminCmd(conn, j)
                 "log" -> conn.send(JSONObject().put("t", "log").put("v", ZLog.tail(60)).toString())
             }
         } catch (e: Exception) {
@@ -726,6 +595,7 @@ class ZappAccessibilityService : AccessibilityService() {
 
     private var cursor: View? = null
     private var cursorLp: WindowManager.LayoutParams? = null
+    private var cursorClick: (() -> Unit)? = null
     private var cx = 0f
     private var cy = 0f
 
@@ -741,6 +611,7 @@ class ZappAccessibilityService : AccessibilityService() {
                 if (!on) {
                     cursor?.let { wm.removeView(it) }
                     cursor = null
+                    cursorClick = null
                     return@post
                 }
                 if (cursor != null) return@post
@@ -748,7 +619,7 @@ class ZappAccessibilityService : AccessibilityService() {
                 cx = w / 2f
                 cy = h / 2f
                 val d = resources.displayMetrics.density
-                val size = (34 * d).toInt()
+                val size = (64 * d).toInt()
                 val v = object : View(this) {
                     private val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFFFFFF.toInt() }
                     private val edge = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -756,8 +627,23 @@ class ZappAccessibilityService : AccessibilityService() {
                         style = Paint.Style.STROKE
                         strokeWidth = 2.5f * d
                     }
+                    private val ring = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                        color = 0xFF00E5FF.toInt()
+                        style = Paint.Style.STROKE
+                        strokeWidth = 2.5f * d
+                    }
+                    var pulse = 0f
 
                     override fun onDraw(c: Canvas) {
+                        // Hedef halkasi: tiklanacak nokta (imlecin ucu)
+                        val tx = 2f * d
+                        val ty = 2f * d
+                        ring.alpha = 255
+                        c.drawCircle(tx + 9f * d, ty + 9f * d, 8f * d, ring)
+                        if (pulse > 0f) {
+                            ring.alpha = (255 * (1f - pulse)).toInt()
+                            c.drawCircle(tx + 9f * d, ty + 9f * d, (8f + 18f * pulse) * d, ring)
+                        }
                         val p = Path().apply {
                             moveTo(2f * d, 2f * d)
                             lineTo(2f * d, 26f * d)
@@ -770,6 +656,19 @@ class ZappAccessibilityService : AccessibilityService() {
                         }
                         c.drawPath(p, fill)
                         c.drawPath(p, edge)
+                    }
+
+                    fun click() {
+                        val a = android.animation.ValueAnimator.ofFloat(0f, 1f)
+                        a.duration = 350
+                        a.addUpdateListener { pulse = it.animatedValue as Float; invalidate() }
+                        a.addListener(object : android.animation.AnimatorListenerAdapter() {
+                            override fun onAnimationEnd(an: android.animation.Animator) {
+                                pulse = 0f
+                                invalidate()
+                            }
+                        })
+                        a.start()
                     }
                 }
                 val lp = WindowManager.LayoutParams(
@@ -786,6 +685,7 @@ class ZappAccessibilityService : AccessibilityService() {
                 wm.addView(v, lp)
                 cursor = v
                 cursorLp = lp
+                cursorClick = { v.click() }
             } catch (e: Exception) {
                 ZLog.e("fare imleci", e)
             }
@@ -829,6 +729,7 @@ class ZappAccessibilityService : AccessibilityService() {
 
     private fun mouseClick(long: Boolean) {
         handler.post {
+            try { cursorClick?.invoke() } catch (e: Exception) { }
             val x = cx.toInt()
             val y = cy.toInt()
             if (!long) {

@@ -122,6 +122,7 @@ fun ZButton(
     modifier: Modifier = Modifier,
     primary: Boolean = false,
     autoFocus: Boolean = false,
+    icon: Ic? = null,
     onClick: () -> Unit,
 ) {
     var focused by remember { mutableStateOf(false) }
@@ -134,6 +135,7 @@ fun ZButton(
             }
         }
     }
+    val ic = icon ?: inferIcon(text)
     val shape = RoundedCornerShape(26.dp)
     Box(
         modifier
@@ -147,13 +149,24 @@ fun ZButton(
             .padding(horizontal = 20.dp, vertical = 8.dp),
         contentAlignment = Alignment.Center,
     ) {
-        Text(
-            text,
-            color = Ink,
-            fontWeight = FontWeight.Bold,
-            fontSize = 17.sp,
-            textAlign = TextAlign.Center,
-        )
+        androidx.compose.foundation.layout.Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.Center,
+        ) {
+            if (ic != null) {
+                ZIcon(ic, 22.dp, Ink)
+                if (text.isNotBlank()) androidx.compose.foundation.layout.Spacer(Modifier.size(8.dp))
+            }
+            if (text.isNotBlank()) {
+                Text(
+                    text,
+                    color = Ink,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 17.sp,
+                    textAlign = TextAlign.Center,
+                )
+            }
+        }
     }
 }
 
@@ -170,7 +183,13 @@ fun PadKey(glyph: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Text(glyph, color = Ink, fontSize = 30.sp)
+        val ic = when (glyph) {
+            "UP" -> Ic.UP
+            "DOWN" -> Ic.DOWN
+            "LEFT" -> Ic.LEFT
+            else -> Ic.RIGHT
+        }
+        ZIcon(ic, 34.dp, Ink)
     }
 }
 
@@ -182,6 +201,7 @@ fun BigCard(
     highlighted: Boolean,
     autoFocus: Boolean,
     modifier: Modifier = Modifier,
+    icon: Ic? = null,
     onClick: () -> Unit,
 ) {
     var focused by remember { mutableStateOf(false) }
@@ -212,6 +232,10 @@ fun BigCard(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center,
     ) {
+        if (icon != null) {
+            ZIcon(icon, 72.dp, if (highlighted) Cyan else Ink)
+            androidx.compose.foundation.layout.Spacer(Modifier.size(10.dp))
+        }
         Text(title, color = Ink, fontSize = 32.sp, fontWeight = FontWeight.Bold)
         Text(subtitle, color = Muted, fontSize = 18.sp, textAlign = TextAlign.Center)
     }

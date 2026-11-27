@@ -95,7 +95,14 @@ private fun PermissionPage(ctx: Context, onChangeMode: () -> Unit, onLog: () -> 
         Text("1. Aşağıdaki düğmeye bas", color = Ink, fontSize = 24.sp)
         Text("2. Listeden \"Zapp\" uygulamasını seç", color = Ink, fontSize = 24.sp)
         Text("3. Açık konuma getir ve onayla", color = Ink, fontSize = 24.sp)
-        Spacer(Modifier.height(32.dp))
+        Spacer(Modifier.height(16.dp))
+        Text(
+            if (A11yGuard.canWrite(ctx)) "Koruma açık: izin kapanırsa Zapp kendisi yeniden açar."
+            else "İzin kendiliğinden kapanıyorsa bilgisayardan bir kez şunu çalıştır:\n" + A11yGuard.GRANT_CMD,
+            color = Muted,
+            fontSize = 16.sp,
+        )
+        Spacer(Modifier.height(24.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
             ZButton("Ayarları aç", primary = true, autoFocus = true) {
                 try {

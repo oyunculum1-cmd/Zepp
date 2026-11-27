@@ -80,17 +80,7 @@ fun PhoneRoot(onChangeMode: () -> Unit) {
     var tab by remember { mutableStateOf(if (Prefs.devices(ctx).isEmpty()) "scan" else "remote") }
     val active = devices.firstOrNull { it.id == activeId } ?: devices.firstOrNull()
     val status by RemoteClient.status.collectAsState()
-    val isAdmin by RemoteClient.admin.collectAsState()
     val notice by RemoteClient.notice.collectAsState()
-    var intro by remember { mutableStateOf(false) }
-    var introShown by remember { mutableStateOf(false) }
-    // Yonetici oldugun anlasilinca panel animasyonla acilir (surec basina bir kez)
-    LaunchedEffect(isAdmin) {
-        if (isAdmin && !introShown) {
-            introShown = true
-            intro = true
-        }
-    }
 
     // Wi-Fi'ye bagla (internetsiz yerel agda da calissin) ve uygulamaya donunce hemen yeniden baglan
     LaunchedEffect(Unit) { NetBinder.start(ctx) }
@@ -126,13 +116,6 @@ fun PhoneRoot(onChangeMode: () -> Unit) {
     }
 
     TvLogDialog()
-    if (intro) {
-        AdminIntro(NetUtil.localIp() ?: "?") {
-            intro = false
-            tab = "admin"
-        }
-        return
-    }
     Column(Modifier.fillMaxSize()) {
         // Ust cubuk
         Row(
@@ -191,8 +174,6 @@ fun PhoneRoot(onChangeMode: () -> Unit) {
                 "kbd" -> KeyboardTab()
                 "apps" -> AppsTab()
                 "files" -> FilesTab()
-                "wall" -> WallTab()
-                "admin" -> AdminTab()
                 "game" -> GameTab()
                 "devs" -> DevicesTab(
                     devices = devices,
@@ -230,21 +211,35 @@ fun PhoneRoot(onChangeMode: () -> Unit) {
                 "kbd" to "Klavye",
                 "apps" to "Uygulama",
                 "files" to "Dosya",
-                "wall" to "Duvar kağıdı",
                 "game" to "Oyun",
                 "devs" to "Cihazlar",
-            ).let { if (isAdmin) it + ("admin" to "Admin") else it }.forEach { (id, label) ->
-                Box(
+            ).forEach { (id, label) ->
+                Column(
                     Modifier
                         .width(84.dp)
-                        .heightMin48()
+                        .height(62.dp)
                         .clickable { tab = id },
-                    contentAlignment = Alignment.Center,
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
                 ) {
+                    ZIcon(
+                        when (id) {
+                            "remote" -> Ic.REMOTE
+                            "touch" -> Ic.MOUSE
+                            "kbd" -> Ic.KEYBOARD
+                            "apps" -> Ic.APPS
+                            "files" -> Ic.FOLDER
+                            "game" -> Ic.GAMEPAD
+                            "devs" -> Ic.TV
+                            else -> Ic.SHIELD
+                        },
+                        26.dp,
+                        if (tab == id) Cyan else Muted,
+                    )
                     Text(
                         label,
                         color = if (tab == id) Cyan else Muted,
-                        fontSize = 13.sp,
+                        fontSize = 12.sp,
                         fontWeight = if (tab == id) FontWeight.Bold else FontWeight.Normal,
                         textAlign = TextAlign.Center,
                     )
@@ -272,8 +267,6 @@ private fun RemoteTab() {
     val st by RemoteClient.status.collectAsState()
     fun key(k: String) {
         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-        // TV'ye bagli degilken girilen gizli dizi yonetici modunu acar
-        AdminCode.feed(ctx, k)
         send("key", "k" to k)
     }
     Column(
@@ -282,10 +275,10 @@ private fun RemoteTab() {
         verticalArrangement = Arrangement.spacedBy(24.dp),
     ) {
         Box(Modifier.size(264.dp).clip(CircleShape).background(Panel)) {
-            PadKey("▲", Modifier.align(Alignment.TopCenter).size(88.dp)) { key("UP") }
-            PadKey("▼", Modifier.align(Alignment.BottomCenter).size(88.dp)) { key("DOWN") }
-            PadKey("◀", Modifier.align(Alignment.CenterStart).size(88.dp)) { key("LEFT") }
-            PadKey("▶", Modifier.align(Alignment.CenterEnd).size(88.dp)) { key("RIGHT") }
+            PadKey("UP", Modifier.align(Alignment.TopCenter).size(88.dp)) { key("UP") }
+            PadKey("DOWN", Modifier.align(Alignment.BottomCenter).size(88.dp)) { key("DOWN") }
+            PadKey("LEFT", Modifier.align(Alignment.CenterStart).size(88.dp)) { key("LEFT") }
+            PadKey("RIGHT", Modifier.align(Alignment.CenterEnd).size(88.dp)) { key("RIGHT") }
             Box(
                 Modifier
                     .align(Alignment.Center)
@@ -303,9 +296,9 @@ private fun RemoteTab() {
             ZButton("Ana ekran", Modifier.weight(1f)) { key("HOME") }
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            ZButton("Ses −", Modifier.weight(1f)) { send("vol", "d" to -1) }
+            ZButton("Ses kıs", Modifier.weight(1f)) { send("vol", "d" to -1) }
             ZButton("Sessiz", Modifier.weight(1f)) { send("mute") }
-            ZButton("Ses +", Modifier.weight(1f)) { send("vol", "d" to 1) }
+            ZButton("Ses aç", Modifier.weight(1f)) { send("vol", "d" to 1) }
         }
         MediaRow()
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -333,6 +326,9 @@ private fun TouchTab() {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             ZButton("Fare", Modifier.weight(1f), primary = mouse) { mouse = true }
             ZButton("Yön tuşları", Modifier.weight(1f), primary = !mouse) { mouse = false }
+        }
+        if (mouse) {
+            ZButton("Fareyi kapat", Modifier.fillMaxWidth(), icon = Ic.CLOSE) { mouse = false }
         }
         Box(
             Modifier
@@ -415,8 +411,8 @@ private fun TouchTab() {
         }
         if (mouse) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                ZButton("▲ Yukarı kaydır", Modifier.weight(1f)) { send("mscroll", "d" to -1) }
-                ZButton("▼ Aşağı kaydır", Modifier.weight(1f)) { send("mscroll", "d" to 1) }
+                ZButton("Yukarı kaydır", Modifier.weight(1f)) { send("mscroll", "d" to -1) }
+                ZButton("Aşağı kaydır", Modifier.weight(1f)) { send("mscroll", "d" to 1) }
             }
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {

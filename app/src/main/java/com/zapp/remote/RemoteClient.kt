@@ -331,7 +331,7 @@ object RemoteClient {
                 tvVer.value = j.optInt("ver", 1)
                 if (admin.value && Prefs.adminWant(ctx).isNotEmpty()) Prefs.setAdminWant(ctx, "")
                 if (tvVer.value < 4) {
-                    notice.value = "TV'deki Zapp ESKİ sürüm (v${tvVer.value}). Dosya, admin, duvar kağıdı, fare ve yazı için TV'ye de yeni APK'yı kur."
+                    notice.value = "TV'deki Zapp ESKİ sürüm (v${tvVer.value}). Dosya, fare ve yazı için TV'ye de yeni APK'yı kur."
                 } else if (notice.value.startsWith("TV'deki Zapp ESK")) {
                     notice.value = ""
                 }
